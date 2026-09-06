@@ -159,6 +159,19 @@ int rtl_wpa_connect(libusb_device_handle *h, int channel,
       rtl_write8(h, 0x0102, (uint8_t)((msr & 0xFC) | 0x02)); } /* port0 = _HW_STATE_STATION_ */
     rtl_reg_write(h, 0x0618, w_bssid, 6);                /* REG_BSSID */
 
+    /* HW_VAR_BASIC_RATE (rtw_mlme_ext.c, applied on join in the reference
+     * driver -- something our hand-built handshake never replicated): program
+     * REG_RRSR (Response Rate Set, 0x0440) from the network's basic rates.
+     * Left at its power-on default, this is very likely why every broadcast
+     * DATA frame we transmit (ARP/DHCP) got zero replies on air across every
+     * queue/rate/encryption combination we tried, while unicast (hardware-
+     * ACKed) and management-type broadcast frames were unaffected. 2.4GHz
+     * formula from hal/rtl8812a/rtl8812a_hal_init.c HW_VAR_BASIC_RATE: force
+     * CCK, allow CCK+6M+12M+24M. */
+    { uint16_t rrsr = 0x0F /*CCK 1/2/5.5/11*/ | 0x10 /*6M*/ | 0x40 /*12M*/ | 0x100 /*24M*/;
+      rtl_write16(h, 0x0440, rrsr);
+      rtl_write8(h, 0x0442, (uint8_t)(rtl_read8(h, 0x0442, NULL) & 0xf0)); }
+
     if(verbose)printf("[wpa] connected, TK set, GTK %s, station mode (auto-ACK on).\n",
                       k->have_gtk?"ok":"missing");
     return 0;
