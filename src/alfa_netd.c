@@ -45,7 +45,7 @@ static int g_dhcp_mode = 0;
 static uint8_t g_dtype = 0, g_yi[4], g_dmask[4], g_dgw[4], g_dsrv[4];
 /* Diagnose-Zaehler. */
 static long c_utun_out = 0, c_tx = 0, c_rx_ip = 0, c_rx_other = 0, c_rx_dec = 0;
-static long c_icmp_out = 0, c_icmp_in = 0;
+static long c_icmp_out = 0, c_icmp_in = 0, c_uni_seen = 0, c_uni_decfail = 0;
 /* Routing-Sicherung, damit wir das Netz nie kaputt zuruecklassen. */
 static char g_orig_gw[64] = "";
 static int  g_changed_default = 0;
@@ -185,10 +185,14 @@ static void on_frame(const uint8_t *f, uint32_t len, void *v) {
     int bcast = (f[4] & 0x01);
     int to_us = (memcmp(f+4, K.sa, 6) == 0);
     if (!bcast && !to_us) return;
+    if (to_us && !bcast) c_uni_seen++;                /* Unicast-Frame an uns (Gateway-Antwort?) */
     const uint8_t *key = bcast ? K.gtk : K.tk;
     uint8_t out[2048]; int ol=0;
     int elen = (int)len - 4;                          /* FCS */
-    if (elen<=24 || rtl_ccmp_decrypt_frame(key, f, elen, out, &ol) != 0) return;
+    if (elen<=24 || rtl_ccmp_decrypt_frame(key, f, elen, out, &ol) != 0) {
+        if (to_us && !bcast) c_uni_decfail++;
+        return;
+    }
     if (ol < 8 || !(out[0]==0xAA&&out[1]==0xAA&&out[2]==0x03)) return;
     c_rx_dec++;
     uint16_t et = (out[6]<<8)|out[7];
@@ -322,8 +326,8 @@ int main(int argc, char **argv) {
         }
         if (time(NULL) != last) {
             last = time(NULL);
-            fprintf(stderr, "[stat] utun_out=%ld tx=%ld  rx_ip=%ld rx_other=%ld  icmp_out=%ld icmp_in=%ld\n",
-                    c_utun_out, c_tx, c_rx_ip, c_rx_other, c_icmp_out, c_icmp_in);
+            fprintf(stderr, "[stat] utun_out=%ld tx=%ld  rx_ip=%ld  icmp_out=%ld icmp_in=%ld  uni_seen=%ld uni_decfail=%ld\n",
+                    c_utun_out, c_tx, c_rx_ip, c_icmp_out, c_icmp_in, c_uni_seen, c_uni_decfail);
         }
     }
 
