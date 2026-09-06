@@ -28,4 +28,8 @@ void rtl_rx_write_pcap_header(FILE *f);
  * eine Live-Zaehlung. Setzt voraus: Chip initialisiert + Monitor-RCR + Kanal. */
 long rtl_rx_capture(libusb_device_handle *h, FILE *f, int seconds, int verbose);
 
+/* Wie rtl_rx_capture, aber zeitgeboxt in Millisekunden — fuer verschachteltes
+ * TX/RX (injizieren, dann kurz lauschen). Gibt geschriebene Frames zurueck. */
+long rtl_rx_pump(libusb_device_handle *h, FILE *f, int ms);
+
 #endif /* RTL_RX_H */

@@ -64,6 +64,24 @@ static long parse_bulk(const uint8_t *buf, int total, FILE *f) {
     return n;
 }
 
+long rtl_rx_pump(libusb_device_handle *h, FILE *f, int ms) {
+    uint8_t *buf = malloc(RX_BUF_SIZE);
+    if (!buf) return -1;
+    long frames = 0;
+    struct timespec t0; clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (;;) {
+        struct timespec t1; clock_gettime(CLOCK_MONOTONIC, &t1);
+        long el = (t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
+        if (el >= ms) break;
+        int got = 0;
+        int rc = libusb_bulk_transfer(h, RTL_RX_EP, buf, RX_BUF_SIZE, &got, 50);
+        if (rc == 0 && got > RTL_RXDESC_SIZE)
+            frames += parse_bulk(buf, got, f);
+    }
+    free(buf);
+    return frames;
+}
+
 long rtl_rx_capture(libusb_device_handle *h, FILE *f, int seconds, int verbose) {
     uint8_t *buf = malloc(RX_BUF_SIZE);
     if (!buf) return -1;

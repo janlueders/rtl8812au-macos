@@ -62,8 +62,10 @@ macOS bringt keinen RTL8812AU-Treiber mit → das Gerät ist frei und greifbar.
 - [x] **M4 — RX/Monitor: FUNKTIONIERT.** Bulk-IN-Deaggregation → pcap+radiotap.
       Verifiziert auf 2.4 GHz (Kanal 6) und 5 GHz (Kanal 100): echte Beacons,
       Data-, ACK-, Block-ACK-Frames, per tcpdump dekodiert.
-- [ ] **M5 — TX/Injection:** rohe Frames + TX-Deskriptor über Bulk-OUT
-      (braucht Kalibrierung; PA-relevant).
+- [x] **M5 — TX/Injection: FUNKTIONIERT.** TX-Deskriptor (40B + Pflicht-
+      Prüfsumme) über Bulk-OUT 0x02. Verifiziert: 30 Probe-Requests → 36 Probe-
+      Responses an unsere MAC von der FRITZ!Box. Moderate TX-Power (0x12), kein
+      PA-Risiko. Deauth etc. laufen über denselben Pfad. → `inject`, `rtl_tx`
 - [ ] **M6 — Wireshark extcap + brew:** als Live-Capture-Quelle einbinden.
 - [ ] **LED:** GPIO/Pin fuer AWUS036ACH-Variante klaeren (LEDCFG greift noch nicht).
 
