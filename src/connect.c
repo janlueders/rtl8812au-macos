@@ -124,8 +124,9 @@ static void dec_cb(const uint8_t *f, uint32_t len, void *v) {
     if (!bcast && !to_us) return;
     g_seen_prot++;
     const uint8_t *key = bcast ? g_gtk : g_tk;
+    int elen = (int)len - 4;                    /* RCR_APPFCS: 4-Byte-FCS am Ende entfernen */
     uint8_t out[2048]; int ol = 0;
-    if (rtl_ccmp_decrypt_frame(key, f, (int)len, out, &ol) == 0 && ol >= 8 &&
+    if (elen > 24 && rtl_ccmp_decrypt_frame(key, f, elen, out, &ol) == 0 && ol >= 8 &&
         out[0]==0xAA && out[1]==0xAA && out[2]==0x03) {
         if (!g_dec_ok) {
             g_dec_ok = 1;
