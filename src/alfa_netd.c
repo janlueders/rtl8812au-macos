@@ -51,19 +51,26 @@ static long c_dhcp_seen = 0;   /* UDP frames to dst port 68 (any DHCP reply) */
 static char g_orig_gw[64] = "";
 static int  g_changed_default = 0;
 static char g_ifn[32] = "";
+static char g_wifi_dev[16] = "";   /* Apple Wi-Fi device (e.g. en0) */
+static int  g_wifi_off = 0;         /* we turned Apple Wi-Fi off */
 static volatile sig_atomic_t g_stop = 0;
 
+/* Restore system networking so we never leave the Mac without connectivity. */
 static void restore_routing(void) {
     char cmd[256];
     if (g_changed_default) {
-        /* Always remove our utun default so no dead route lingers. */
         snprintf(cmd,sizeof(cmd),"route -n delete default -interface %s 2>/dev/null", g_ifn); system(cmd);
         snprintf(cmd,sizeof(cmd),"route -n delete default 2>/dev/null"); system(cmd);
-        /* Restore the previous gateway if we had one (WiFi was on at start). */
         if (g_orig_gw[0]) {
             snprintf(cmd,sizeof(cmd),"route -n add default %s 2>/dev/null", g_orig_gw); system(cmd);
         }
         g_changed_default = 0;
+    }
+    if (g_wifi_off && g_wifi_dev[0]) {
+        /* Re-enable Apple Wi-Fi so the Mac's normal internet comes back. */
+        snprintf(cmd,sizeof(cmd),"networksetup -setairportpower %s on 2>/dev/null", g_wifi_dev);
+        system(cmd);
+        g_wifi_off = 0;
     }
 }
 static void on_signal(int s) { (void)s; g_stop = 1; }
@@ -238,8 +245,22 @@ int main(int argc, char **argv) {
     const char *ssid = argv[3];
     int want_default = (argc > 4 && strcmp(argv[4], "--default") == 0);
 
-    /* Signal-Handler + Original-Default-Gateway sichern (fuer sauberes Restore). */
+    /* Find the Apple Wi-Fi device (e.g. en0). */
+    { FILE *pp = popen("networksetup -listallhardwareports 2>/dev/null | awk '/Wi-Fi|AirPort/{getline; print $2}'", "r");
+      if (pp) { if (fgets(g_wifi_dev, sizeof(g_wifi_dev), pp)) g_wifi_dev[strcspn(g_wifi_dev,"\n")]=0; pclose(pp); } }
+
+    /* Signal handlers first so any exit path restores networking. */
     signal(SIGINT, on_signal); signal(SIGTERM, on_signal);
+
+    /* With --default our adapter must be the ONLY radio on the AP: two radios on
+     * the same AP/channel starve our unicast RX (dhcp_frames=0, uni_seen=0).
+     * So turn Apple Wi-Fi off now; restore_routing() turns it back on at exit. */
+    if (want_default && g_wifi_dev[0]) {
+        char cmd[128];
+        snprintf(cmd,sizeof(cmd),"networksetup -setairportpower %s off 2>/dev/null", g_wifi_dev);
+        printf("Schalte Apple-WLAN (%s) aus, damit der Adapter alleiniges Radio ist ...\n", g_wifi_dev);
+        system(cmd); g_wifi_off = 1; sleep(2);
+    }
     { FILE *pp = popen("route -n get default 2>/dev/null | awk '/gateway/{print $2}'", "r");
       if (pp) { if (fgets(g_orig_gw, sizeof(g_orig_gw), pp)) g_orig_gw[strcspn(g_orig_gw,"\n")]=0; pclose(pp); } }
 
