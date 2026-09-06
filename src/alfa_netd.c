@@ -46,6 +46,7 @@ static uint8_t g_dtype = 0, g_yi[4], g_dmask[4], g_dgw[4], g_dsrv[4];
 /* Diagnose-Zaehler. */
 static long c_utun_out = 0, c_tx = 0, c_rx_ip = 0, c_rx_other = 0, c_rx_dec = 0;
 static long c_icmp_out = 0, c_icmp_in = 0, c_uni_seen = 0, c_uni_decfail = 0;
+static long c_dhcp_seen = 0;   /* UDP frames to dst port 68 (any DHCP reply) */
 /* Routing-Sicherung, damit wir das Netz nie kaputt zuruecklassen. */
 static char g_orig_gw[64] = "";
 static int  g_changed_default = 0;
@@ -203,9 +204,12 @@ static void on_frame(const uint8_t *f, uint32_t len, void *v) {
         if (out[8+6]==0 && out[8+7]==2) {
             if (!memcmp(pl+14, g_gw_ip, 4)) { memcpy(g_gw_mac, pl+8, 6); g_have_gw_mac=1; }
         }
-    } else if (et == ETH_IP && pll >= 20) {
+    } else if (et == ETH_IP && pll >= 28) {
+        /* count any UDP frame to dst port 68 (a DHCP reply reaching us) */
+        if (pl[9]==17) { int ihl=(pl[0]&0x0f)*4;
+            if (pll>ihl+4 && pl[ihl+2]==0x00 && pl[ihl+3]==0x44) c_dhcp_seen++; }
         if (g_dhcp_mode && is_dhcp_reply(pl, pll, &g_dtype, g_yi, g_dmask, g_dgw, g_dsrv))
-            return;                                 /* DHCP-Antwort erfasst, nicht weiterleiten */
+            return;                                 /* DHCP reply captured, don't forward */
         if (g_utun_fd >= 0) {                        /* IP an macOS ueber utun */
             uint8_t buf[2100]; uint32_t af = htonl(AF_INET);
             memcpy(buf, &af, 4); memcpy(buf+4, pl, pll);
@@ -253,6 +257,10 @@ int main(int argc, char **argv) {
     fcntl(g_utun_fd, F_SETFL, O_NONBLOCK);
     printf("utun: %s\n", ifn);
 
+    /* Settle: let the AP finish plumbing us as a station, drain early RX. */
+    printf("Settle 800ms nach Verbindung ...\n");
+    for (int r=0;r<6;r++) rtl_rx_poll(h,150,on_frame,h);
+
     /* DHCP */
     printf("DHCP ...\n");
     uint8_t xid[4]={0xde,0xad,0xbe,0xef};
@@ -261,12 +269,13 @@ int main(int argc, char **argv) {
     g_dhcp_mode = 1;
 
     il = dhcp_build(pkt,1,xid,NULL,NULL);            /* DISCOVER -> OFFER (type 2) */
-    for (int t=0;t<15 && g_dtype!=2;t++){ send_l3(h,bc,ETH_IP,pkt,il);
-        for(int r=0;r<8 && g_dtype!=2;r++) rtl_rx_poll(h,150,on_frame,h); }
+    for (int t=0;t<30 && g_dtype!=2;t++){ send_l3(h,bc,ETH_IP,pkt,il);
+        for(int r=0;r<5 && g_dtype!=2;r++) rtl_rx_poll(h,120,on_frame,h);
+        if (t==9 || t==19) printf("  ... DISCOVER %d gesendet, noch kein OFFER (dhcp_seen=%ld)\n", t+1, c_dhcp_seen); }
     if (g_dtype!=2){
-        printf("Kein DHCP-OFFER. Diagnose: entschluesselte Frames=%ld (rx_ip=%ld, rx_other=%ld)\n",
-               c_rx_dec, c_rx_ip, c_rx_other);
-        printf("  (=0 -> RX/Association tot; >0 -> DHCP-Antwort kam nicht/parste nicht)\n");
+        printf("Kein DHCP-OFFER. Diagnose: dhcp_frames=%ld entschluesselte=%ld (rx_ip=%ld rx_other=%ld uni_seen=%ld)\n",
+               c_dhcp_seen, c_rx_dec, c_rx_ip, c_rx_other, c_uni_seen);
+        printf("  (dhcp_frames>0 -> OFFER kam an, parst aber nicht; =0 -> DISCOVER erreicht Server nicht)\n");
         goto done;
     }
     memcpy(g_our_ip,g_yi,4); memcpy(g_mask,g_dmask,4); memcpy(g_gw_ip,g_dgw,4);

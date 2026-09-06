@@ -1,12 +1,12 @@
 /*
- * rtl_hal — volle Inbetriebnahme (Orchestrator). Siehe rtl_hal.h.
+ * rtl_hal — full bring-up (orchestrator). See rtl_hal.h.
  *
- * Reihenfolge nach dem Linux-rtl8812au_hal_init: Power-On, Firmware, MAC, BB,
- * RF, Kanal, (optional Kalibrierung), Monitor-RCR.
+ * Order follows the Linux rtl8812au_hal_init: power-on, firmware, MAC, BB,
+ * RF, channel, (optional calibration), monitor RCR.
  *
- * with_cal=0 faehrt REIN RX hoch (kein internes TX, kein PA-Risiko) — fuer
- * sicheren Monitor-Erstbetrieb. with_cal=1 fuegt LCK+IQK hinzu (verbessert
- * TX/RX-Qualitaet, noetig fuer saubere Injection).
+ * with_cal=0 brings up RX ONLY (no internal TX, no PA risk) — for
+ * safe initial monitor operation. with_cal=1 adds LCK+IQK (improves
+ * TX/RX quality, needed for clean injection).
  */
 #include "rtl_hal.h"
 #include "rtl_usb.h"
@@ -35,14 +35,14 @@ int rtl_hal_full_init(libusb_device_handle *h, int channel, int with_cal, int ve
     }
     STEP(rtl_mac_set_monitor(h, verbose),     "Monitor-RCR");
 
-    rtl_led_on(h);   /* LED an, sobald der Chip initialisiert ist (LEDCFG0) */
+    rtl_led_on(h);   /* LED on as soon as the chip is initialized (LEDCFG0) */
 
-    /* Software-Beweise statt LED: Registerzustand zurueckelesen. */
+    /* Software proof instead of LED: read back the register state. */
     if (verbose) {
         int rc = 0;
         uint8_t  cr  = rtl_read8(h, 0x0100, NULL);        /* REG_CR */
         uint32_t rcr = rtl_read32(h, 0x0608, NULL);       /* REG_RCR */
-        uint32_t ch18 = rtl_rf_read(h, 0, 0x18, &rc);     /* RF PathA Kanal-Reg */
+        uint32_t ch18 = rtl_rf_read(h, 0, 0x18, &rc);     /* RF PathA channel reg */
         printf("[hal] Readback: CR=0x%02x  RCR=0x%08x  RF_A[0x18]=0x%05x (rc=%d)\n",
                cr, rcr, ch18, rc);
         printf("[hal] Init komplett, Kanal %d, Monitor aktiv%s.\n",

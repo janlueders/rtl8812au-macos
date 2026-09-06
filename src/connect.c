@@ -256,7 +256,7 @@ int main(int argc, char **argv) {
     const uint8_t *kck = ptk;                    /* KCK = PTK[0:16] */
     memcpy(g_tk, ptk + 32, 16);                  /* TK = PTK[32:48] for unicast CCMP */
 
-    /* msg2: SNonce + MIC + RSN als key data */
+    /* msg2: SNonce + MIC + RSN as key data */
     if (send_eapol(h, 0x010A, s.replay_m1, snonce, rsn, sizeof(rsn), kck) != 0)
         { printf("msg2-Sendefehler.\n"); goto done; }
     printf("msg2 gesendet. Warte auf msg3 ...\n");
@@ -265,24 +265,24 @@ int main(int argc, char **argv) {
     if (!s.got_m3){ printf("Keine msg3 — Passwort vermutlich falsch (MIC abgelehnt).\n"); goto done; }
     printf("msg3 empfangen -> Passwort korrekt, PTK stimmt.\n");
 
-    /* msg4: bestaetigen */
+    /* msg4: confirm */
     send_eapol(h, 0x030A, s.replay_m3, NULL, NULL, 0, kck);
     printf("msg4 gesendet.\n==> IE3 OK: WPA2-4-Way-Handshake abgeschlossen.\n\n");
 
-    /* --- IE4/IE5-Vorstufe: GTK auspacken + CCMP live entschluesseln --- */
+    /* --- IE4/IE5 precursor: unwrap GTK + decrypt CCMP live --- */
     const uint8_t *kek = ptk + 16;
     if (s.m3_kdlen >= 24 && (s.m3_kdlen % 8) == 0) {
         uint8_t kd[256];
         if (rtl_aes_unwrap(kek, s.m3_kd, s.m3_kdlen, kd) == 0) {
             int plen = s.m3_kdlen - 8, i = 0, have = 0;
-            /* Key Data mischt IEs (z.B. RSN 0x30) und KDEs (0xDD) — nicht abbrechen,
-             * sondern jedes Element ueberspringen und nur die GTK-KDE herausziehen. */
+            /* Key Data mixes IEs (e.g. RSN 0x30) and KDEs (0xDD) — do not abort,
+             * but skip each element and extract only the GTK KDE. */
             while (i + 2 <= plen) {
                 int id = kd[i], l = kd[i+1];
-                if (l == 0 || i + 2 + l > plen) break;    /* Ende/Padding */
+                if (l == 0 || i + 2 + l > plen) break;    /* end/padding */
                 if (id == 0xDD && l >= 6 &&
                     kd[i+2]==0x00 && kd[i+3]==0x0f && kd[i+4]==0xac && kd[i+5]==0x01) {
-                    memcpy(g_gtk, kd + i + 8, 16); have = 1; /* GTK KDE: OUI+type+keyid+rsvd, dann GTK */
+                    memcpy(g_gtk, kd + i + 8, 16); have = 1; /* GTK KDE: OUI+type+keyid+rsvd, then GTK */
                 }
                 i += 2 + l;
             }
