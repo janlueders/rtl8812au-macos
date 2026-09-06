@@ -10,3 +10,6 @@ fwload
 reference/
 
 ledtest
+stagetest
+monitor
+capture.pcap
