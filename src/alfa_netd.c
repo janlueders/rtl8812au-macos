@@ -114,7 +114,7 @@ static int send_l3(libusb_device_handle *h, const uint8_t dst_mac[6],
      * to get a DHCP reply at all, even though our RX/decrypt path is proven
      * healthy. Unlike EAPOL (unicast, hardware-ACKed, retried automatically),
      * these are unacked broadcasts -- reverting to the known-good queue. */
-    return rtl_tx_inject(h, frame, flen, RTL_RATE_6M, RTL_QSLT_BE, RTL_TX_EP_MGMT);
+    return rtl_tx_inject(h, frame, flen, RTL_RATE_6M, RTL_QSLT_MGNT, RTL_TX_EP_MGMT);
 }
 
 /* ---- IPv4/UDP-Pruefsumme ---- */
@@ -234,7 +234,7 @@ static void arp_request_plain(libusb_device_handle *h, const uint8_t *target_ip)
     fr[q++]=0; fr[q++]=0;
     uint8_t snap[8]={0xAA,0xAA,0x03,0,0,0,0x08,0x06}; memcpy(fr+q,snap,8); q+=8;
     memcpy(fr+q,a,28); q+=28;
-    rtl_tx_inject(h, fr, q, RTL_RATE_6M, RTL_QSLT_BE, RTL_TX_EP_MGMT);
+    rtl_tx_inject(h, fr, q, RTL_RATE_6M, RTL_QSLT_MGNT, RTL_TX_EP_MGMT);
 }
 
 /* ---- RX-Dispatch ---- */
