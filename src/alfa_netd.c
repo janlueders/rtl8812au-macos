@@ -43,7 +43,7 @@ static int g_have_gw_mac = 0;
 static int g_dhcp_mode = 0;
 static uint8_t g_dtype = 0, g_yi[4], g_dmask[4], g_dgw[4], g_dsrv[4];
 /* Diagnose-Zaehler. */
-static long c_utun_out = 0, c_tx = 0, c_rx_ip = 0, c_rx_other = 0;
+static long c_utun_out = 0, c_tx = 0, c_rx_ip = 0, c_rx_other = 0, c_rx_dec = 0;
 
 /* ---- utun ---- */
 static int utun_open(char *ifname, size_t ilen) {
@@ -95,6 +95,7 @@ static int dhcp_build(uint8_t *out, uint8_t msgtype, const uint8_t *xid,
     uint8_t bp[600]; memset(bp, 0, sizeof(bp)); int p = 0;
     bp[0]=1; bp[1]=1; bp[2]=6; bp[3]=0; p=4;      /* op,htype,hlen,hops */
     memcpy(bp+4, xid, 4); p=8;                     /* xid */
+    bp[10]=0x80; bp[11]=0x00;                       /* flags: Broadcast (OFFER/ACK per Broadcast) */
     p=28; memcpy(bp+28, K.sa, 6);                  /* chaddr */
     p=236; bp[236]=0x63; bp[237]=0x82; bp[238]=0x53; bp[239]=0x63; p=240; /* magic */
     bp[p++]=53; bp[p++]=1; bp[p++]=msgtype;        /* DHCP msg type */
@@ -171,6 +172,7 @@ static void on_frame(const uint8_t *f, uint32_t len, void *v) {
     int elen = (int)len - 4;                          /* FCS */
     if (elen<=24 || rtl_ccmp_decrypt_frame(key, f, elen, out, &ol) != 0) return;
     if (ol < 8 || !(out[0]==0xAA&&out[1]==0xAA&&out[2]==0x03)) return;
+    c_rx_dec++;
     uint16_t et = (out[6]<<8)|out[7];
     const uint8_t *pl = out+8; int pll = ol-8;
 
@@ -230,7 +232,12 @@ int main(int argc, char **argv) {
     il = dhcp_build(pkt,1,xid,NULL,NULL);            /* DISCOVER -> OFFER (type 2) */
     for (int t=0;t<15 && g_dtype!=2;t++){ send_l3(h,bc,ETH_IP,pkt,il);
         for(int r=0;r<8 && g_dtype!=2;r++) rtl_rx_poll(h,150,on_frame,h); }
-    if (g_dtype!=2){ printf("Kein DHCP-OFFER (Timing/Netz justieren).\n"); goto done; }
+    if (g_dtype!=2){
+        printf("Kein DHCP-OFFER. Diagnose: entschluesselte Frames=%ld (rx_ip=%ld, rx_other=%ld)\n",
+               c_rx_dec, c_rx_ip, c_rx_other);
+        printf("  (=0 -> RX/Association tot; >0 -> DHCP-Antwort kam nicht/parste nicht)\n");
+        goto done;
+    }
     memcpy(g_our_ip,g_yi,4); memcpy(g_mask,g_dmask,4); memcpy(g_gw_ip,g_dgw,4);
     printf("OFFER: IP %u.%u.%u.%u\n", g_yi[0],g_yi[1],g_yi[2],g_yi[3]);
 
