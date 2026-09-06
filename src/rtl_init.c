@@ -1,15 +1,15 @@
 /*
- * rtl_init — Power-On-Sequenz (card enable) fuer RTL8812AU, USB.
+ * rtl_init — power-on sequence (card enable) for RTL8812AU, USB.
  *
- * Portiert aus:
+ * Ported from:
  *   include/Hal8812PwrSeq.h   (RTL8812_TRANS_CARDEMU_TO_ACT)
- *   hal/HalPwrSeqCmd.c        (Interpreter-Semantik)
+ *   hal/HalPwrSeqCmd.c        (interpreter semantics)
  *
  * WRITE  : v = read8(off); v = (v & ~mask) | (value & mask); write8(off, v)
- * POLLING: read8(off) wiederholen bis (v & mask) == (value & mask)
- * DELAY  : Mikrosekunden aus dem offset-Feld
+ * POLLING: repeat read8(off) until (v & mask) == (value & mask)
+ * DELAY  : microseconds from the offset field
  *
- * Nur die USB-relevanten Schritte (PWR_INTF_ALL enthaelt USB).
+ * Only the USB-relevant steps (PWR_INTF_ALL includes USB).
  */
 #include "rtl_usb.h"
 #include <stdio.h>
@@ -27,7 +27,7 @@ typedef struct {
     const char *note;
 } pwr_step;
 
-/* RTL8812_TRANS_CARDEMU_TO_ACT (USB), BITn zu Zahlen expandiert. */
+/* RTL8812_TRANS_CARDEMU_TO_ACT (USB), BITn expanded to numbers. */
 static const pwr_step card_enable[] = {
     {0x0005, CMD_WRITE,   BIT(2), 0,      "disable SW LPS 0x04[10]=0"},
     {0x0006, CMD_POLLING, BIT(1), BIT(1), "wait power ready 0x04[17]=1"},
@@ -69,7 +69,7 @@ int rtl_power_on(libusb_device_handle *h, int verbose) {
                 if (verbose) printf("  [%d] POLLING 0x%04x mask=0x%02x erwartet=0x%02x "
                                     "letzter=0x%02x  TIMEOUT  (%s)\n",
                                     i, s->offset, s->mask, s->value, v & s->mask, s->note);
-                return i + 1; /* >0: Nummer des fehlgeschlagenen Schritts */
+                return i + 1; /* >0: number of the failed step */
             }
             if (verbose) printf("  [%d] POLLING 0x%04x mask=0x%02x == 0x%02x  OK  (%s)\n",
                                 i, s->offset, s->mask, s->value & s->mask, s->note);

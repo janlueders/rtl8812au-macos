@@ -382,8 +382,8 @@ static u32 array_mp_8812a_mac_reg[] = {
  * (support_interface = ODM_ITRF_USB), all remaining dm fields = 0/DONTCARE. */
 static int mac_check_positive(u32 cond1, u32 cond2, u32 cond3, u32 cond4)
 {
-	/* driver1: nur das Interface-Feld (Bits [11:8] = interface & 0x0F) ist
-	 * fuer diese Tabelle relevant; cut/package/board sind hier DONTCARE. */
+	/* driver1: only the interface field (bits [11:8] = interface & 0x0F) is
+	 * relevant for this table; cut/package/board are DONTCARE here. */
 	u32 driver1 = (MAC_ITRF_USB & 0x0F) << 8;
 	u32 driver2 = 0, driver4 = 0;
 
@@ -402,7 +402,7 @@ static int mac_check_positive(u32 cond1, u32 cond2, u32 cond3, u32 cond4)
 	if ((cond1 & driver1) == cond1) {
 		u32 bit_mask = 0;
 
-		if ((cond1 & 0x0F) == 0) /* board_type ist DONTCARE */
+		if ((cond1 & 0x0F) == 0) /* board_type is DONTCARE */
 			return 1;
 
 		if (cond1 & BIT(0)) bit_mask |= 0x000000FF;
@@ -432,8 +432,8 @@ static int apply_mac_reg_table(libusb_device_handle *h, int verbose)
 		v1 = array[i];
 		v2 = array[i + 1];
 
-		if (v1 & (BIT(31) | BIT(30))) {          /* Bedingungseintrag */
-			if (v1 & BIT(31)) {                  /* positive Bedingung */
+		if (v1 & (BIT(31) | BIT(30))) {          /* condition entry */
+			if (v1 & BIT(31)) {                  /* positive condition */
 				u8 c_cond = (u8)((v1 & (BIT(29) | BIT(28))) >> 28);
 				if (c_cond == COND_ENDIF) {
 					is_matched = 1;
@@ -444,7 +444,7 @@ static int apply_mac_reg_table(libusb_device_handle *h, int verbose)
 					pre_v1 = v1;
 					pre_v2 = v2;
 				}
-			} else if (v1 & BIT(30)) {           /* negative Bedingung */
+			} else if (v1 & BIT(30)) {           /* negative condition */
 				if (!is_skipped) {
 					if (mac_check_positive(pre_v1, pre_v2, v1, v2)) {
 						is_matched = 1;
@@ -457,7 +457,7 @@ static int apply_mac_reg_table(libusb_device_handle *h, int verbose)
 					is_matched = 0;
 				}
 			}
-		} else {                                 /* normaler 8-bit-Write */
+		} else {                                 /* normal 8-bit write */
 			if (is_matched) {
 				rc = rtl_write8(h, (uint16_t)v1, (uint8_t)v2);
 				if (rc)
@@ -474,7 +474,7 @@ static int apply_mac_reg_table(libusb_device_handle *h, int verbose)
 }
 
 /* ===========================================================================
- * LLT-Init (rtl8812a_hal_init.c: _LLTWrite_8812A / InitLLTTable8812A)
+ * LLT init (rtl8812a_hal_init.c: _LLTWrite_8812A / InitLLTTable8812A)
  * =========================================================================== */
 static int llt_write(libusb_device_handle *h, u32 address, u32 data)
 {
@@ -494,7 +494,7 @@ static int llt_write(libusb_device_handle *h, u32 address, u32 data)
 		if (_LLT_NO_ACTIVE == _LLT_OP_VALUE(value))
 			return 0;
 		if (count > POLLING_LLT_THRESHOLD)
-			return 1;   /* Timeout */
+			return 1;   /* timeout */
 	} while (++count);
 
 	return 1;
@@ -511,16 +511,16 @@ static int init_llt_table(libusb_device_handle *h, u8 txpktbuf_bndy, int verbose
 		if (rc)
 			return rc;
 	}
-	rc = llt_write(h, (u32)(txpktbuf_bndy - 1), 0xFF);   /* Listenende */
+	rc = llt_write(h, (u32)(txpktbuf_bndy - 1), 0xFF);   /* end of list */
 	if (rc)
 		return rc;
 
-	for (i = txpktbuf_bndy; i < last; i++) {             /* Ringpuffer */
+	for (i = txpktbuf_bndy; i < last; i++) {             /* ring buffer */
 		rc = llt_write(h, i, i + 1);
 		if (rc)
 			return rc;
 	}
-	rc = llt_write(h, last, txpktbuf_bndy);              /* Ring schliessen */
+	rc = llt_write(h, last, txpktbuf_bndy);              /* close the ring */
 	if (rc)
 		return rc;
 
@@ -530,8 +530,8 @@ static int init_llt_table(libusb_device_handle *h, u8 txpktbuf_bndy, int verbose
 }
 
 /* ===========================================================================
- * OUT-Endpoint-Konfiguration (usb_halinit.c: _ConfigChipOutEP_8812).
- * Ermittelt die Bulk-OUT-EP-Anzahl per libusb aus dem aktiven Config-Deskriptor.
+ * OUT endpoint configuration (usb_halinit.c: _ConfigChipOutEP_8812).
+ * Determines the bulk-OUT-EP count via libusb from the active config descriptor.
  * =========================================================================== */
 static void config_out_ep(libusb_device_handle *h, int *out_num, u8 *queue_sel,
 			  int verbose)
@@ -548,7 +548,7 @@ static void config_out_ep(libusb_device_handle *h, int *out_num, u8 *queue_sel,
 			for (a = 0; a < itf->num_altsetting; a++) {
 				const struct libusb_interface_descriptor *id = &itf->altsetting[a];
 				int e;
-				/* nur AltSetting 0 (das geclaimte Interface) zaehlen */
+				/* only count AltSetting 0 (the claimed interface) */
 				if (id->bAlternateSetting != 0)
 					continue;
 				for (e = 0; e < id->bNumEndpoints; e++) {
@@ -564,7 +564,7 @@ static void config_out_ep(libusb_device_handle *h, int *out_num, u8 *queue_sel,
 	}
 
 	if (num_out < 1 || num_out > 4)
-		num_out = 4;   /* Standard fuer 8812AU falls Ermittlung scheitert */
+		num_out = 4;   /* default for 8812AU if determination fails */
 
 	switch (num_out) {
 	case 4: *queue_sel = TX_SELE_HQ | TX_SELE_LQ | TX_SELE_NQ | TX_SELE_EQ; break;
@@ -580,7 +580,7 @@ static void config_out_ep(libusb_device_handle *h, int *out_num, u8 *queue_sel,
 }
 
 /* ===========================================================================
- * MAC-Bring-up-Schritte (usb_halinit.c, USB-Varianten)
+ * MAC bring-up steps (usb_halinit.c, USB variants)
  * =========================================================================== */
 
 /* _InitQueueReservedPage_8812AUsb (wifi_spec=0) */
@@ -605,7 +605,7 @@ static int init_queue_reserved_page(libusb_device_handle *h, u8 queue_sel)
 	return rtl_write32(h, REG_RQPN, value32);
 }
 
-/* _InitTxBufferBoundary_8812AUsb (wifi_spec=0). Setzt u.a. REG_TRXFF_BNDY. */
+/* _InitTxBufferBoundary_8812AUsb (wifi_spec=0). Sets REG_TRXFF_BNDY among others. */
 static int init_tx_buffer_boundary(libusb_device_handle *h, u8 txpktbuf_bndy)
 {
 	int rc;
@@ -631,7 +631,7 @@ static int init_reg_priority(libusb_device_handle *h, u16 beQ, u16 bkQ, u16 viQ,
 	return rtl_write16(h, REG_TRXDMA_CTRL, value16);
 }
 
-/* _InitQueuePriority_8812AUsb (wifi_spec=0), abhaengig von OutEpNumber */
+/* _InitQueuePriority_8812AUsb (wifi_spec=0), depends on OutEpNumber */
 static int init_queue_priority(libusb_device_handle *h, int out_num, u8 queue_sel)
 {
 	u16 beQ, bkQ, viQ, voQ, mgtQ, hiQ;
@@ -684,7 +684,7 @@ static int init_driver_info_size(libusb_device_handle *h)
 	return rtl_write8(h, REG_RX_DRVINFO_SZ, DRVINFO_SZ);
 }
 
-/* _InitNetworkType_8812A: Netzwerktyp = AP (msr), ueber REG_CR[17:16] */
+/* _InitNetworkType_8812A: network type = AP (msr), via REG_CR[17:16] */
 static int init_network_type(libusb_device_handle *h)
 {
 	int rc;
@@ -694,9 +694,9 @@ static int init_network_type(libusb_device_handle *h)
 	return rtl_write32(h, REG_CR, value32);
 }
 
-/* _InitWMACSetting_8812A: RCR (Standard-Betrieb) + MAR + RXFLTMAP1.
- * Fuer Monitor-Mode wird RCR/RXFLTMAP spaeter von rtl_mac_set_monitor
- * ueberschrieben. */
+/* _InitWMACSetting_8812A: RCR (standard operation) + MAR + RXFLTMAP1.
+ * For monitor mode, RCR/RXFLTMAP is later overwritten by rtl_mac_set_monitor
+ * (the promisc value). */
 static int init_wmac_setting(libusb_device_handle *h)
 {
 	int rc;
@@ -713,12 +713,12 @@ static int init_wmac_setting(libusb_device_handle *h)
 	rc = rtl_write32(h, REG_MAR, 0xFFFFFFFF);       if (rc) return rc;
 	rc = rtl_write32(h, REG_MAR + 4, 0xFFFFFFFF);   if (rc) return rc;
 
-	/* RxFilterMap: ps-poll maskieren (BIT10), wie in der Referenz. */
+	/* RxFilterMap: mask ps-poll (BIT10), as in the reference. */
 	value16 = BIT(10);
 	return rtl_write16(h, REG_RXFLTMAP1, value16);
 }
 
-/* _InitAdaptiveCtrl_8812AUsb (wireless_mode ohne 11B -> without-CCK) */
+/* _InitAdaptiveCtrl_8812AUsb (wireless_mode without 11B -> without-CCK) */
 static int init_adaptive_ctrl(libusb_device_handle *h)
 {
 	int rc;
@@ -769,12 +769,12 @@ static int init_retry_function(libusb_device_handle *h)
 	return rtl_write8(h, REG_ACKTO, 0x80);
 }
 
-/* _InitBeaconParameters_8812A (ohne BT-Coexist) */
+/* _InitBeaconParameters_8812A (without BT-Coexist) */
 static int init_beacon_parameters(libusb_device_handle *h)
 {
 	int rc;
 	u8  val8 = DIS_TSF_UDT;
-	u16 val16 = (u16)(val8 | (val8 << 8));   /* port0 und port1 */
+	u16 val16 = (u16)(val8 | (val8 << 8));   /* port0 and port1 */
 	u8  tmp;
 
 	rc = rtl_write16(h, REG_BCN_CTRL, val16);                 if (rc) return rc;
@@ -788,8 +788,8 @@ static int init_beacon_parameters(libusb_device_handle *h)
 	return rtl_write16(h, REG_BCNTCFG, 0x4413);
 }
 
-/* _InitBurstPktLen (usb_halinit.c). AMPDUBurstMode/8821 nicht relevant fuer
- * 8812AU; USB-Speed wird zur Laufzeit aus Reg 0xff/0xfe17 gelesen. */
+/* _InitBurstPktLen (usb_halinit.c). AMPDUBurstMode/8821 not relevant for
+ * 8812AU; USB speed is read at runtime from reg 0xff/0xfe17. */
 static int init_burst_pkt_len(libusb_device_handle *h)
 {
 	int rc;
@@ -825,7 +825,7 @@ static int init_burst_pkt_len(libusb_device_handle *h)
 				(u8)((provalue | BIT(3) | BIT(2) | BIT(1)) & (~(BIT(5) | BIT(4))))); /* 1k */
 		if (rc) return rc;
 		temp = rtl_read8(h, 0xf008, &rc);   if (rc) return rc;
-		rc = rtl_write8(h, 0xf008, (u8)(temp & 0xE7)); if (rc) return rc; /* U1/U2 aus */
+		rc = rtl_write8(h, 0xf008, (u8)(temp & 0xE7)); if (rc) return rc; /* U1/U2 off */
 	}
 
 	rc = rtl_write8(h, REG_TDECTRL, 0x10);      if (rc) return rc; /* !CONFIG_USB_TX_AGGREGATION */
@@ -845,7 +845,7 @@ static int init_burst_pkt_len(libusb_device_handle *h)
 	temp = rtl_read8(h, REG_RSV_CTRL, &rc);      if (rc) return rc; /* 0x1c */
 	rc = rtl_write8(h, REG_RSV_CTRL, (u8)(temp | BIT(5) | BIT(6))); if (rc) return rc;
 
-	/* ARFB-Tabellen 9-12 */
+	/* ARFB tables 9-12 */
 	rc = rtl_write32(h, REG_ARFR0_8812, 0x00000010);     if (rc) return rc;
 	rc = rtl_write32(h, REG_ARFR0_8812 + 4, 0xfffff000); if (rc) return rc;
 	rc = rtl_write32(h, REG_ARFR1_8812, 0x00000010);     if (rc) return rc;
@@ -857,7 +857,7 @@ static int init_burst_pkt_len(libusb_device_handle *h)
 }
 
 /* ===========================================================================
- * Oeffentliche API
+ * Public API
  * =========================================================================== */
 int rtl_mac_init(libusb_device_handle *h, int verbose)
 {
@@ -869,9 +869,9 @@ int rtl_mac_init(libusb_device_handle *h, int verbose)
 
 	config_out_ep(h, &out_num, &queue_sel, verbose);
 
-	/* 0) _InitPowerOn_8812AU: MAC-DMA/WMAC/SCHEDULE/SEC-Block freischalten.
-	 * OHNE diese CR-DMA-Enables liefert der Chip KEINE RX-Daten ueber USB
-	 * (Symptom: 0 Bytes auf 0x81). Muss vor LLT/MAC-Config passieren. */
+	/* 0) _InitPowerOn_8812AU: enable MAC-DMA/WMAC/SCHEDULE/SEC block.
+	 * WITHOUT these CR DMA enables the chip delivers NO RX data over USB
+	 * (symptom: 0 bytes on 0x81). Must happen before LLT/MAC config. */
 	rtl_write16(h, REG_CR, 0x0000);
 	{
 		uint16_t cr = rtl_read16(h, REG_CR, NULL);
@@ -882,22 +882,22 @@ int rtl_mac_init(libusb_device_handle *h, int verbose)
 		if (verbose) printf("[mac] CR-DMA-Block freigeschaltet -> CR=0x%04x\n", cr);
 	}
 
-	/* 1) LLT-Tabelle (im HAL vor der MAC-Config, direkt nach Power-On). */
+	/* 1) LLT table (in the HAL before the MAC config, right after power-on). */
 	rc = init_llt_table(h, txpktbuf_bndy, verbose);
 	if (rc) { if (verbose) printf("[mac] LLT-Init fehlgeschlagen (%d)\n", rc); return rc; }
 
-	/* 2) PHY_MACConfig8812: MAC-Register-Tabelle anwenden. */
+	/* 2) PHY_MACConfig8812: apply the MAC register table. */
 	rc = apply_mac_reg_table(h, verbose);
 	if (rc) { if (verbose) printf("[mac] MAC-Reg-Tabelle fehlgeschlagen (%d)\n", rc); return rc; }
 
-	/* 3) Queues / Pages / Prioritaeten */
+	/* 3) Queues / pages / priorities */
 	rc = init_queue_reserved_page(h, queue_sel);   if (rc) return rc;
 	rc = init_tx_buffer_boundary(h, txpktbuf_bndy); if (rc) return rc;
 	rc = init_queue_priority(h, out_num, queue_sel); if (rc) return rc;
 	rc = init_page_boundary(h);                     if (rc) return rc;
 	rc = init_transfer_page_size(h);                if (rc) return rc;
 
-	/* 4) DriverInfo / Netzwerktyp / WMAC / EDCA / Retry / Beacon */
+	/* 4) DriverInfo / network type / WMAC / EDCA / Retry / Beacon */
 	rc = init_driver_info_size(h);   if (rc) return rc;
 	rc = init_network_type(h);       if (rc) return rc;
 	rc = init_wmac_setting(h);       if (rc) return rc;
@@ -906,10 +906,10 @@ int rtl_mac_init(libusb_device_handle *h, int verbose)
 	rc = init_retry_function(h);     if (rc) return rc;
 	rc = init_beacon_parameters(h);  if (rc) return rc;
 
-	/* 5) Burst-Pkt-Len (USB) */
+	/* 5) Burst pkt len (USB) */
 	rc = init_burst_pkt_len(h);      if (rc) return rc;
 
-	/* 6) MACTXEN/MACRXEN NACH REG_TRXFF_BNDY setzen (HW-Bug-Workaround). */
+	/* 6) Set MACTXEN/MACRXEN AFTER REG_TRXFF_BNDY (HW bug workaround). */
 	value8 = rtl_read8(h, REG_CR, &rc); if (rc) return rc;
 	rc = rtl_write8(h, REG_CR, (u8)(value8 | MACTXEN | MACRXEN));
 	if (rc) return rc;
@@ -927,13 +927,13 @@ int rtl_mac_set_monitor(libusb_device_handle *h, int verbose)
 	u32 value32;
 
 	/*
-	 * Promiskuitiver Monitor-RCR. Basis ist hw_var_set_monitor() aus
+	 * Promiscuous monitor RCR. Base is hw_var_set_monitor() from
 	 * rtl8812a_hal_init.c:
 	 *     RCR_AAP | RCR_APM | RCR_AM | RCR_AB | RCR_APWRMGT
 	 *   | RCR_ADF | RCR_ACF | RCR_AMF | RCR_APP_PHYST_RXFF | RCR_APPFCS
-	 * Zusaetzlich (laut Aufgabenstellung, in der Referenz per #if 0
-	 * deaktiviert, weil deren Stack CRC/ICV-Frames spaeter verwirft):
-	 *     RCR_ACRC32 | RCR_AICV      -> auch fehlerhafte Frames annehmen.
+	 * Additionally (per the task spec, disabled via #if 0 in the reference
+	 * because their stack discards CRC/ICV frames later):
+	 *     RCR_ACRC32 | RCR_AICV      -> also accept erroneous frames.
 	 *
 	 *   AAP=BIT0  APM=BIT1  AM=BIT2  AB=BIT3  APWRMGT=BIT5
 	 *   ACRC32=BIT8  AICV=BIT9  ADF=BIT11  ACF=BIT12  AMF=BIT13
@@ -945,11 +945,11 @@ int rtl_mac_set_monitor(libusb_device_handle *h, int verbose)
 	      RCR_ADF | RCR_ACF | RCR_AMF |
 	      RCR_APP_PHYST_RXFF | RCR_APPFCS;
 
-	/* Netzwerktyp Port0 -> NoLink (Set_MSR(NOLINK)): MSR[1:0] loeschen. */
+	/* Network type Port0 -> NoLink (Set_MSR(NOLINK)): clear MSR[1:0]. */
 	{
 		u8 msr = rtl_read8(h, MSR, &rc);
 		if (rc) return rc;
-		msr = (u8)((msr & 0x0C) | MSR_NOLINK);   /* Port0-Netztyp = 0 */
+		msr = (u8)((msr & 0x0C) | MSR_NOLINK);   /* Port0 network type = 0 */
 		rc = rtl_write8(h, MSR, msr);
 		if (rc) return rc;
 	}
@@ -957,7 +957,7 @@ int rtl_mac_set_monitor(libusb_device_handle *h, int verbose)
 	rc = rtl_write32(h, REG_RCR, rcr);
 	if (rc) return rc;
 
-	/* Alle mgmt/ctrl/data-Subtypen durchlassen. */
+	/* Let all mgmt/ctrl/data subtypes through. */
 	rc = rtl_write16(h, REG_RXFLTMAP0, 0xFFFF); if (rc) return rc; /* management */
 	rc = rtl_write16(h, REG_RXFLTMAP1, 0xFFFF); if (rc) return rc; /* control */
 	rc = rtl_write16(h, REG_RXFLTMAP2, 0xFFFF); if (rc) return rc; /* data */

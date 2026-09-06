@@ -1,11 +1,11 @@
 /*
- * ledscan — LED-Diagnose nach voller Inbetriebnahme.
+ * ledscan — LED diagnostics after full bring-up.
  *
- * Testet beide Kandidaten-Register getrennt, damit wir sehen, welches (falls
- * eines) die LED deiner AWUS036ACH-Variante steuert:
- *   Phase A: REG_LEDCFG2 (0x4E), LED0 — USB-Solo-Zweig
- *   Phase B: REG_LEDCFG0 (0x4C), LED0 — Alternativ-Zweig
- * Jede Phase blinkt 6x. Sag mir, in welcher Phase (falls) die LED blinkt.
+ * Tests both candidate registers separately so we can see which one (if
+ * any) controls the LED on your AWUS036ACH variant:
+ *   Phase A: REG_LEDCFG2 (0x4E), LED0 — USB-solo branch
+ *   Phase B: REG_LEDCFG0 (0x4C), LED0 — alternative branch
+ * Each phase blinks 6x. Tell me in which phase (if any) the LED blinks.
  */
 #include <stdio.h>
 #include <unistd.h>
@@ -19,12 +19,12 @@
 static void blink(libusb_device_handle *h, uint16_t reg, int usb_solo) {
     for (int i = 0; i < 6; i++) {
         uint8_t c = rtl_read8(h, reg, NULL);
-        if (usb_solo) rtl_write8(h, reg, (uint8_t)((c & 0xf0) | BITn(5) | BITn(6)));   /* an */
-        else          rtl_write8(h, reg, (uint8_t)((c & 0x70) | BITn(5)));             /* an */
+        if (usb_solo) rtl_write8(h, reg, (uint8_t)((c & 0xf0) | BITn(5) | BITn(6)));   /* on */
+        else          rtl_write8(h, reg, (uint8_t)((c & 0x70) | BITn(5)));             /* on */
         usleep(350000);
         c = rtl_read8(h, reg, NULL);
-        if (usb_solo) rtl_write8(h, reg, (uint8_t)(c | BITn(3) | BITn(5) | BITn(6)));  /* aus */
-        else          rtl_write8(h, reg, (uint8_t)((c & 0x70) | BITn(3) | BITn(5)));   /* aus */
+        if (usb_solo) rtl_write8(h, reg, (uint8_t)(c | BITn(3) | BITn(5) | BITn(6)));  /* off */
+        else          rtl_write8(h, reg, (uint8_t)((c & 0x70) | BITn(3) | BITn(5)));   /* off */
         usleep(350000);
     }
 }

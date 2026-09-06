@@ -82,44 +82,44 @@ typedef unsigned short u16;
 #define rB_RFE_Inv_Jaguar       0xeb4
 #define bMask_RFEInv_Jaguar     0x3ff00000
 
-/* --- MAC-Register --- */
+/* --- MAC registers --- */
 #define REG_RF_CTRL             0x001f
 #define REG_CCK_CHECK_8812      0x0454
 #define REG_TXPKT_EMPTY         0x041a
 #define REG_DATA_SC_8812        0x0483
 #define REG_WMAC_TRXPTCL_CTL    0x0668
 
-/* --- RF-Register (adressiert ueber 3-wire) --- */
-#define RF_CHNLBW_Jaguar        0x18    /* Kanal + Bandbreite */
+/* --- RF registers (addressed via 3-wire) --- */
+#define RF_CHNLBW_Jaguar        0x18    /* channel + bandwidth */
 
-/* --- Masken --- */
+/* --- Masks --- */
 #define bMaskDWord              0xffffffff
 #define bMaskByte0              0xff
 
-/* Bandbreiten (intern; entspricht enum channel_width) */
+/* Bandwidths (internal; corresponds to enum channel_width) */
 #define CH_WIDTH_20   0
 #define CH_WIDTH_40   1
 #define CH_WIDTH_80   2
 
-/* Bandtypen */
+/* Band types */
 #define BAND_ON_2_4G  0
 #define BAND_ON_5G    1
 
 /*
- * Hardware-Konfiguration dieses Adapters (AWUS036ACH / generischer 8812AU).
- * 8812AU ist 2T2R -> 2 RF-Pfade. Bei einem 1T1R-Modul auf 1 setzen.
+ * Hardware configuration of this adapter (AWUS036ACH / generic 8812AU).
+ * 8812AU is 2T2R -> 2 RF paths. Set to 1 for a 1T1R module.
  */
 #define RTL_RF_NUM_PATHS   2
-#define RTL_RF_IS_2T2R     1   /* beeinflusst L1PeakTH/PWED bei Bandbreite */
+#define RTL_RF_IS_2T2R     1   /* affects L1PeakTH/PWED for bandwidth */
 
 /* ===================================================================== *
- *  Kleine Helfer
+ *  Small helpers
  * ===================================================================== */
 
 static void udelay_us(unsigned us) { usleep(us); }
 static void mdelay_ms(unsigned ms) { usleep(ms * 1000u); }
 
-/* Anzahl der niederwertigen Null-Bits einer Maske (PHY_CalculateBitShift). */
+/* Number of low-order zero bits of a mask (PHY_CalculateBitShift). */
 static u32 calc_bit_shift(u32 mask)
 {
 	u32 i;
@@ -129,7 +129,7 @@ static u32 calc_bit_shift(u32 mask)
 	return i;
 }
 
-/* ---- Baseband (BB) maskiertes Lesen/Schreiben (PHY_Query/SetBBReg8812) ---- */
+/* ---- Baseband (BB) masked read/write (PHY_Query/SetBBReg8812) ---- */
 
 static u32 bb_read(libusb_device_handle *h, u32 addr, u32 mask)
 {
@@ -149,31 +149,31 @@ static int bb_write(libusb_device_handle *h, u32 addr, u32 mask, u32 data)
 }
 
 /* ===================================================================== *
- *  RF-Serial-Read/Write ueber die BB-LSSI-Register (phy_RFSerialRead/Write)
+ *  RF serial read/write via the BB LSSI registers (phy_RFSerialRead/Write)
  * ===================================================================== */
 
-/* Rohes 20-bit RF-Register lesen (phy_RFSerialRead, non-C-cut-Pfad). */
+/* Read raw 20-bit RF register (phy_RFSerialRead, non-C-cut path). */
 static u32 phy_rf_serial_read(libusb_device_handle *h, int path, u32 offset)
 {
 	u32 ret;
 	int is_pi;
 
-	/* CCA OFF vor dem Lesen (nur wenn Offset != 0, non-C-cut). */
+	/* CCA OFF before reading (only if offset != 0, non-C-cut). */
 	if (offset != 0x0)
 		bb_write(h, rCCAonSec_Jaguar, 0x8, 1);
 
 	offset &= 0xff;
 
-	/* PI- oder SI-Modus? (0xC00[2] fuer A, 0xE00[2] fuer B) */
+	/* PI or SI mode? (0xC00[2] for A, 0xE00[2] for B) */
 	if (path == RTL_RF_PATH_A)
 		is_pi = (int)bb_read(h, 0xC00, 0x4);
 	else
 		is_pi = (int)bb_read(h, 0xE00, 0x4);
 
-	/* RF-Read-Adresse setzen (rfHSSIPara2 = 0x8b0 fuer beide Pfade). */
+	/* Set RF read address (rfHSSIPara2 = 0x8b0 for both paths). */
 	bb_write(h, rHSSIRead_Jaguar, bHSSIRead_addr_Jaguar, offset);
 
-	/* kurze Wartezeit bis der 3-wire-Transfer stabil ist */
+	/* short wait until the 3-wire transfer is stable */
 	udelay_us(10);
 
 	if (is_pi)
@@ -183,30 +183,30 @@ static u32 phy_rf_serial_read(libusb_device_handle *h, int path, u32 offset)
 		ret = bb_read(h, (path == RTL_RF_PATH_A) ? rA_SIRead_Jaguar : rB_SIRead_Jaguar,
 			      rRead_data_Jaguar);
 
-	/* CCA ON nach dem Lesen. */
+	/* CCA ON after reading. */
 	if (offset != 0x0)
 		bb_write(h, rCCAonSec_Jaguar, 0x8, 0);
 
 	return ret;
 }
 
-/* Rohes 20-bit RF-Register schreiben (phy_RFSerialWrite). */
+/* Write raw 20-bit RF register (phy_RFSerialWrite). */
 static int phy_rf_serial_write(libusb_device_handle *h, int path, u32 offset, u32 data)
 {
 	u32 data_and_addr;
 	u32 reg = (path == RTL_RF_PATH_A) ? rA_LSSIWrite_Jaguar : rB_LSSIWrite_Jaguar;
 
 	offset &= 0xff;
-	/* Write-Adresse in [27:20], Write-Daten in [19:00]. */
+	/* Write address in [27:20], write data in [19:00]. */
 	data_and_addr = ((offset << 20) | (data & 0x000fffff)) & 0x0fffffff;
 	return rtl_write32(h, (uint16_t)reg, data_and_addr);
 }
 
 /*
- * Maskiertes RF-Schreiben (phy_set_rf_reg / PHY_SetRFReg8812).
- * WICHTIG: Wie im Referenztreiber wird (data << shift) OHNE erneutes Maskieren
- * mit ~mask verodert (bewusst so, siehe RF_MOD_AG-Werte wie 0x101).
- * Bei voller 20-bit-Maske wird direkt geschrieben (kein read-modify-write).
+ * Masked RF write (phy_set_rf_reg / PHY_SetRFReg8812).
+ * IMPORTANT: As in the reference driver, (data << shift) is OR-ed in WITHOUT
+ * re-masking with ~mask (intentional, see RF_MOD_AG values such as 0x101).
+ * With a full 20-bit mask the write is direct (no read-modify-write).
  */
 static int rf_write_mask(libusb_device_handle *h, int path, u32 reg, u32 mask, u32 data)
 {
@@ -221,7 +221,7 @@ static int rf_write_mask(libusb_device_handle *h, int path, u32 reg, u32 mask, u
 }
 
 /* ===================================================================== *
- *  Oeffentliche RF-Register-API
+ *  Public RF register API
  * ===================================================================== */
 
 uint32_t rtl_rf_read(libusb_device_handle *h, int path, uint16_t reg_addr, int *rc)
@@ -244,7 +244,7 @@ int rtl_rf_write(libusb_device_handle *h, int path, uint16_t reg_addr, uint32_t 
 }
 
 /* ===================================================================== *
- *  RF-Register-Tabellen (VERBATIM aus hal/phydm/rtl8812a/halhwimg8812a_rf.c)
+ *  RF register tables (VERBATIM from hal/phydm/rtl8812a/halhwimg8812a_rf.c)
  * ===================================================================== */
 
 static u32 array_mp_8812a_radioa[] = {
@@ -1078,20 +1078,20 @@ static u32 array_mp_8812a_radiob[] = {
 #define COND_ENDIF  3
 
 /*
- * Hardware-Deskriptoren fuer check_positive(). Standardwerte fuer einen
- * generischen 8812AU ohne externes Frontend-Modul (AWUS036ACH): board_type=0,
- * keine LNA/PA-Typen. -> es greifen ausschliesslich die ELSE-Zweige.
- * (Keine Tabellenbedingung selektiert nach Cut-Version/Package, daher spielen
- *  cut_version/package_type keine Rolle fuer die 8812AU-RF-Tabellen.)
+ * Hardware descriptors for check_positive(). Default values for a
+ * generic 8812AU without an external frontend module (AWUS036ACH): board_type=0,
+ * no LNA/PA types. -> only the ELSE branches take effect.
+ * (No table condition selects by cut version/package, so
+ *  cut_version/package_type play no role for the 8812AU RF tables.)
  */
 static const u32 g_board_type   = 0;
 static const u32 g_cut_version  = 0;
 static const u32 g_package_type = 0;
-static const u32 g_support_interface = 0x01; /* USB (fuer die Tabellen irrelevant) */
+static const u32 g_support_interface = 0x01; /* USB (irrelevant for the tables) */
 static const u32 g_support_platform  = 0x08; /* ODM_CE (irrelevant) */
 static const u32 g_type_glna = 0, g_type_gpa = 0, g_type_alna = 0, g_type_apa = 0;
 
-/* 1:1-Portierung von check_positive() aus halhwimg8812a_rf.c */
+/* 1:1 port of check_positive() from halhwimg8812a_rf.c */
 static int check_positive(u32 condition1, u32 condition2, u32 condition3, u32 condition4)
 {
 	u8 _board_type = ((g_board_type & (1u << 4)) >> 4) << 0 | /* _GLNA */
@@ -1154,23 +1154,23 @@ static int check_positive(u32 condition1, u32 condition2, u32 condition3, u32 co
 	return 0;
 }
 
-/* Eine RF-Tabellenzeile anwenden (odm_config_rf_reg_8812a). */
+/* Apply a single RF table row (odm_config_rf_reg_8812a). */
 static int config_rf_reg(libusb_device_handle *h, int path, u32 addr, u32 data)
 {
 	if (addr == 0xfe || addr == 0xffe) {
 		mdelay_ms(50);
 		return 0;
 	}
-	/* addr | maskfor_phy_set; maskfor_phy_set = content & 0xE000 = 0 fuer 8812AU */
+	/* addr | maskfor_phy_set; maskfor_phy_set = content & 0xE000 = 0 for 8812AU */
 	int rc = rf_write_mask(h, path, addr & 0xff, RFREGOFFSETMASK, data);
 	udelay_us(1);
 	return rc;
 }
 
 /*
- * Tabellen-Interpreter, exakt wie odm_read_and_config_mp_8812a_radioa/b:
- * behandelt IF/ELSEIF (0x8.../0x9...), ELSE (0xA...), ENDIF (0xB...) und die
- * Negativbedingung (0x4...) via check_positive().
+ * Table interpreter, exactly like odm_read_and_config_mp_8812a_radioa/b:
+ * handles IF/ELSEIF (0x8.../0x9...), ELSE (0xA...), ENDIF (0xB...) and the
+ * negative condition (0x4...) via check_positive().
  */
 static int apply_rf_table(libusb_device_handle *h, int path,
 			  const u32 *array, u32 array_len, int verbose)
@@ -1228,7 +1228,7 @@ static int apply_rf_table(libusb_device_handle *h, int path,
 }
 
 /* ===================================================================== *
- *  RF-Grundkonfiguration (PHY_RFConfig8812 / PHY_RF6052_Config_8812)
+ *  Basic RF configuration (PHY_RFConfig8812 / PHY_RF6052_Config_8812)
  * ===================================================================== */
 
 int rtl_rf_init(libusb_device_handle *h, int verbose)
@@ -1241,12 +1241,12 @@ int rtl_rf_init(libusb_device_handle *h, int verbose)
 		printf("[rtl_rf] RF-Init: radioA (%u u32) auf Pfad A, radioB (%u u32) auf Pfad B\n",
 		       lena, lenb);
 
-	/* Pfad A: radioA-Tabelle */
+	/* Path A: radioA table */
 	r = apply_rf_table(h, RTL_RF_PATH_A, array_mp_8812a_radioa, lena, verbose);
 	if (r < 0 && rc == 0) rc = r;
 
 #if (RTL_RF_NUM_PATHS >= 2)
-	/* Pfad B: radioB-Tabelle */
+	/* Path B: radioB table */
 	r = apply_rf_table(h, RTL_RF_PATH_B, array_mp_8812a_radiob, lenb, verbose);
 	if (r < 0 && rc == 0) rc = r;
 #endif
@@ -1257,11 +1257,11 @@ int rtl_rf_init(libusb_device_handle *h, int verbose)
 }
 
 /* ===================================================================== *
- *  Band-Umschaltung (Teilportierung von PHY_SwitchWirelessBand8812,
- *  8812AU-Pfad, rfe_type 0)
+ *  Band switching (partial port of PHY_SwitchWirelessBand8812,
+ *  8812AU path, rfe_type 0)
  * ===================================================================== */
 
-/* phy_SetRFEReg8812 fuer rfe_type 0 (AWUS036ACH-Standard). */
+/* phy_SetRFEReg8812 for rfe_type 0 (AWUS036ACH default). */
 static void set_rfe_reg_8812(libusb_device_handle *h, int band)
 {
 	if (band == BAND_ON_2_4G) {
@@ -1288,12 +1288,12 @@ static void switch_band(libusb_device_handle *h, int band)
 		/* PWED_TH [3:1]: 2T2R -> 0x04 */
 		bb_write(h, rPwed_TH_Jaguar, (1u<<1)|(1u<<2)|(1u<<3), 0x04);
 
-		/* AGC-Tabellen-Auswahl (2.4G) */
+		/* AGC table selection (2.4G) */
 		bb_write(h, rAGC_table_Jaguar, 0x3, 0);
 
 		set_rfe_reg_8812(h, band);
 
-		/* CCK-FA-Workaround (mp_mode == 0) */
+		/* CCK-FA workaround (mp_mode == 0) */
 		bb_write(h, rTxPath_Jaguar, 0xf0, 0x1);
 		bb_write(h, rCCK_RX_Jaguar, 0x0f000000, 0x1);
 
@@ -1307,7 +1307,7 @@ static void switch_band(libusb_device_handle *h, int band)
 		rtl_write8(h, REG_CCK_CHECK_8812,
 			   (uint8_t)(rtl_read8(h, REG_CCK_CHECK_8812, NULL) | (1u << 7)));
 
-		/* Warten bis TX-Queue leer (Reg41A[5:4] == 0x30), max. 50x50us */
+		/* Wait until TX queue is empty (Reg41A[5:4] == 0x30), max 50x50us */
 		reg41A = rtl_read16(h, REG_TXPKT_EMPTY, NULL) & 0x30;
 		while ((reg41A != 0x30) && (count < 50)) {
 			udelay_us(50);
@@ -1330,16 +1330,16 @@ static void switch_band(libusb_device_handle *h, int band)
 	}
 
 	/*
-	 * phy_SetBBSwingByBand_8812A: Tx-BB-Swing. Ohne efuse-Auswertung setzen wir
-	 * den sicheren Default 0 dB (0x200) fuer beide Pfade (0xC1C/0xE1C [31:21]).
-	 * Feinabstimmung uebernimmt das Tx-Power-/Kalibriermodul.
+	 * phy_SetBBSwingByBand_8812A: Tx BB swing. Without efuse evaluation we set
+	 * the safe default of 0 dB (0x200) for both paths (0xC1C/0xE1C [31:21]).
+	 * Fine tuning is handled by the Tx power / calibration module.
 	 */
 	bb_write(h, rA_TxScale_Jaguar, 0xFFE00000, 0x200);
 	bb_write(h, rB_TxScale_Jaguar, 0xFFE00000, 0x200);
 }
 
 /* ===================================================================== *
- *  Kanal-Umschaltung (phy_SwChnl8812) + Bandbreite 20 MHz
+ *  Channel switching (phy_SwChnl8812) + 20 MHz bandwidth
  *  (phy_PostSetBwMode8812 + PHY_RF6052SetBandwidth8812)
  * ===================================================================== */
 
@@ -1376,18 +1376,18 @@ static void sw_chnl(libusb_device_handle *h, int ch)
 		else
 			rf_write_mask(h, path, RF_CHNLBW_Jaguar, rfmod_mask, 0x000);
 
-		/* Spur-Fix (8812): 2.4G ADC-Clock. Bei 20 MHz. */
+		/* Spur fix (8812): 2.4G ADC clock. For 20 MHz. */
 		if (ch == 13 || ch == 14)
 			bb_write(h, rRFMOD_Jaguar, 0x300, 0x3);
 		else if (ch <= 14)
 			bb_write(h, rRFMOD_Jaguar, 0x300, 0x2);
 
-		/* Kanalnummer (RF 0x18 [7:0]) */
+		/* Channel number (RF 0x18 [7:0]) */
 		rf_write_mask(h, path, RF_CHNLBW_Jaguar, bMaskByte0, (u32)ch);
 	}
 }
 
-/* phy_PostSetBwMode8812 fuer 20 MHz + PHY_RF6052SetBandwidth8812. */
+/* phy_PostSetBwMode8812 for 20 MHz + PHY_RF6052SetBandwidth8812. */
 static void set_bw_20(libusb_device_handle *h)
 {
 	int path;
@@ -1397,10 +1397,10 @@ static void set_bw_20(libusb_device_handle *h)
 	trx = rtl_read16(h, REG_WMAC_TRXPTCL_CTL, NULL);
 	rtl_write16(h, REG_WMAC_TRXPTCL_CTL, (uint16_t)(trx & 0xFE7F));
 
-	/* REG_DATA_SC (0x483) = 0 fuer 20 MHz */
+	/* REG_DATA_SC (0x483) = 0 for 20 MHz */
 	rtl_write8(h, REG_DATA_SC_8812, 0x00);
 
-	/* 20-MHz-BB-Register */
+	/* 20 MHz BB registers */
 	bb_write(h, rRFMOD_Jaguar, 0x003003C3, 0x00300200);
 	bb_write(h, rADC_Buf_Clk_Jaguar, (1u << 30), 0);
 #if RTL_RF_IS_2T2R
@@ -1409,7 +1409,7 @@ static void set_bw_20(libusb_device_handle *h)
 	bb_write(h, rL1PeakTH_Jaguar, 0x03C00000, 8);
 #endif
 
-	/* PHY_RF6052SetBandwidth8812: RF 0x18 [11:10] = 3 (20 MHz), beide Pfade */
+	/* PHY_RF6052SetBandwidth8812: RF 0x18 [11:10] = 3 (20 MHz), both paths */
 	for (path = 0; path < RTL_RF_NUM_PATHS; path++)
 		rf_write_mask(h, path, RF_CHNLBW_Jaguar, (1u << 11) | (1u << 10), 3);
 }
@@ -1418,29 +1418,29 @@ int rtl_rf_set_channel(libusb_device_handle *h, int ch, int bw)
 {
 	int band;
 
-	/* Nur 20 MHz vollstaendig implementiert. */
+	/* Only 20 MHz is fully implemented. */
 	if (bw != RTL_BW_20)
 		return 1;
 
-	/* Kanalgueltigkeit (2.4G 1..14, 5G 36..165). */
+	/* Channel validity (2.4G 1..14, 5G 36..165). */
 	if (!((ch >= 1 && ch <= 14) || (ch >= 36 && ch <= 165)))
 		return 1;
 
 	band = (ch > 14) ? BAND_ON_5G : BAND_ON_2_4G;
 
-	/* 1) Band einstellen (idempotent bei jedem Aufruf angewandt). */
+	/* 1) Set band (applied idempotently on each call). */
 	switch_band(h, band);
 
-	/* 2) Kanal setzen (fc_area + RF_MOD_AG + Kanalnummer je Pfad). */
+	/* 2) Set channel (fc_area + RF_MOD_AG + channel number per path). */
 	sw_chnl(h, ch);
 
-	/* 3) Bandbreite 20 MHz (BB + RF). */
+	/* 3) 20 MHz bandwidth (BB + RF). */
 	set_bw_20(h);
 
 	/*
-	 * HINWEIS: PHY_SetTxPowerLevel8812 und IQK/LCK werden hier bewusst NICHT
-	 * aufgerufen — Tx-Power und Kalibrierung gehoeren in separate Module und
-	 * sollten nach dem Kanalwechsel ausgefuehrt werden.
+	 * NOTE: PHY_SetTxPowerLevel8812 and IQK/LCK are deliberately NOT
+	 * called here — Tx power and calibration belong in separate modules and
+	 * should be run after the channel change.
 	 */
 	return 0;
 }

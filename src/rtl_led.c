@@ -1,12 +1,12 @@
 /*
- * rtl_led — Status-LED des RTL8812AU (USB).
+ * rtl_led — status LED of the RTL8812AU (USB).
  *
- * Auf der AWUS036ACH-Variante des Nutzers steuert REG_LEDCFG0 (0x4C) die LED
- * (per ledscan verifiziert: Phase B). Encoding aus rtl8812au_led.c, else-Zweig,
+ * On the user's AWUS036ACH variant, REG_LEDCFG0 (0x4C) controls the LED
+ * (verified via ledscan: phase B). Encoding from rtl8812au_led.c, else branch,
  * LED_PIN_LED0:
- *   an : REG_LEDCFG0 = (cfg & 0x70) | BIT5           (Bit3=0 -> LED an)
- *   aus: REG_LEDCFG0 = (cfg & 0x70) | BIT3 | BIT5    (Bit3=1 -> LED aus)
- * BIT5 = SW-LED-Control aktiv.
+ *   on : REG_LEDCFG0 = (cfg & 0x70) | BIT5           (Bit3=0 -> LED on)
+ *   off: REG_LEDCFG0 = (cfg & 0x70) | BIT3 | BIT5    (Bit3=1 -> LED off)
+ * BIT5 = SW LED control active.
  */
 #include "rtl_usb.h"
 

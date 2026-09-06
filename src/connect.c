@@ -1,15 +1,15 @@
 /*
- * connect — IE3: WPA2-PSK 4-Way-Handshake (EAPOL) nach der Assoziierung.
+ * connect — IE3: WPA2-PSK 4-Way handshake (EAPOL) after association.
  *
- * Ablauf: Open-Auth -> Assoc (mit RSN) -> EAPOL-4-Way:
+ * Flow: open auth -> assoc (with RSN) -> EAPOL 4-way:
  *   msg1 (AP: ANonce) -> PMK(PBKDF2) + PTK(PRF) -> msg2 (SNonce+MIC)
- *   -> msg3 (AP, MIC-geprueft) -> msg4. Erfolg = wir empfangen msg3
- *   (nur bei korrektem Passwort sendet der AP msg3).
+ *   -> msg3 (AP, MIC-checked) -> msg4. Success = we receive msg3
+ *   (the AP only sends msg3 when the password is correct).
  *
- * Nutzung: ./connect <kanal> <bssid> <ssid>
- * Das WLAN-Passwort wird per getpass abgefragt (nie in argv/History/Log).
+ * Usage: ./connect <channel> <bssid> <ssid>
+ * The WLAN password is queried via getpass (never in argv/history/log).
  *
- * Krypto: macOS CommonCrypto (PBKDF2-SHA1, HMAC-SHA1).
+ * Crypto: macOS CommonCrypto (PBKDF2-SHA1, HMAC-SHA1).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,16 +27,16 @@
 static uint8_t g_sa[6] = { 0x00, 0xc0, 0xca, 0xbc, 0x4e, 0xfa };
 static uint8_t g_bssid[6];
 
-/* --- Handshake-Zustand aus dem RX-Callback --- */
+/* --- Handshake state from the RX callback --- */
 typedef struct {
     int    got_m1, got_m3, got_auth, got_assoc, assoc_status, auth_status;
     uint8_t anonce[32];
     uint8_t replay_m1[8];
     uint8_t replay_m3[8];
-    uint8_t m3_kd[256]; int m3_kdlen;   /* verschluesselte Key Data aus msg3 */
+    uint8_t m3_kd[256]; int m3_kdlen;   /* encrypted Key Data from msg3 */
 } hs_t;
 
-/* CCMP-Live-Entschluesselungstest. */
+/* CCMP live decryption test. */
 static uint8_t g_gtk[16];
 static uint8_t g_tk[16];
 static int g_dec_ok, g_seen_prot, g_dec_fail;
@@ -46,7 +46,7 @@ static int parse_mac(const char *s, uint8_t *m) {
                   &m[0],&m[1],&m[2],&m[3],&m[4],&m[5]) == 6;
 }
 
-/* PRF-384 (WPA): out(48) = HMAC-SHA1(PMK, A||0x00||B||i) fuer i=0..2. */
+/* PRF-384 (WPA): out(48) = HMAC-SHA1(PMK, A||0x00||B||i) for i=0..2. */
 static void prf384(const uint8_t pmk[32], const char *a,
                    const uint8_t *b, int blen, uint8_t out[48]) {
     uint8_t buf[128]; uint8_t digest[20];
@@ -63,7 +63,7 @@ static void prf384(const uint8_t pmk[32], const char *a,
     }
 }
 
-/* min||max Vergleich fuer PTK-Ableitung. */
+/* min||max comparison for PTK derivation. */
 static void append_min_max(uint8_t *dst, int *o, const uint8_t *x, const uint8_t *y, int n) {
     if (memcmp(x, y, n) < 0) { memcpy(dst+*o, x, n); *o+=n; memcpy(dst+*o, y, n); *o+=n; }
     else                     { memcpy(dst+*o, y, n); *o+=n; memcpy(dst+*o, x, n); *o+=n; }
@@ -74,7 +74,7 @@ static void cb(const uint8_t *f, uint32_t len, void *v) {
     if (len < 24) return;
     uint8_t fc0 = f[0];
 
-    /* Auth (0xB0) / Assoc-Resp (0x10) — Adressen: SA=f+10, DA=f+4 */
+    /* Auth (0xB0) / Assoc-Resp (0x10) — addresses: SA=f+10, DA=f+4 */
     if ((fc0 == 0xB0 || fc0 == 0x10) &&
         memcmp(f+10, g_bssid, 6) == 0 && memcmp(f+4, g_sa, 6) == 0) {
         if (fc0 == 0xB0 && len >= 30) { s->got_auth = 1; s->auth_status = f[28]|(f[29]<<8); }
@@ -82,7 +82,7 @@ static void cb(const uint8_t *f, uint32_t len, void *v) {
         return;
     }
 
-    /* Data (0x08) oder QoS-Data (0x88), vom AP an uns (fromDS): addr1=f+4=wir, addr2=f+10=BSSID */
+    /* Data (0x08) or QoS-Data (0x88), from the AP to us (fromDS): addr1=f+4=us, addr2=f+10=BSSID */
     int is_data = ((fc0 & 0x0C) == 0x08);
     if (!is_data) return;
     int qos = ((fc0 & 0xF0) == 0x80);
@@ -110,22 +110,22 @@ static void cb(const uint8_t *f, uint32_t len, void *v) {
     }
 }
 
-/* RX-Callback fuer den CCMP-Test: geschuetzte Data-Frames vom AP entschluesseln.
- * Broadcast/Multicast -> GTK, Unicast an uns -> TK. */
+/* RX callback for the CCMP test: decrypt protected data frames from the AP.
+ * Broadcast/Multicast -> GTK, Unicast to us -> TK. */
 static void dec_cb(const uint8_t *f, uint32_t len, void *v) {
     (void)v;
     if (len < 24) return;
     uint8_t fc0 = f[0], fc1 = f[1];
     if ((fc0 & 0x0C) != 0x08) return;          /* Data */
     if (!(fc1 & 0x40)) return;                  /* Protected */
-    if (memcmp(f + 10, g_bssid, 6) != 0) return;/* vom AP (fromDS: addr2=BSSID) */
+    if (memcmp(f + 10, g_bssid, 6) != 0) return;/* from the AP (fromDS: addr2=BSSID) */
     int bcast = (f[4] & 0x01);
     int to_us = (memcmp(f + 4, g_sa, 6) == 0);
     if (!bcast && !to_us) return;
     g_seen_prot++;
     const uint8_t *key = bcast ? g_gtk : g_tk;
     uint8_t out[2048]; int ol = 0;
-    /* Mit und ohne 4-Byte-FCS versuchen (klaert zugleich, ob RCR_APPFCS greift). */
+    /* Try with and without the 4-byte FCS (also clarifies whether RCR_APPFCS applies). */
     int lens[2] = { (int)len - 4, (int)len };
     for (int k = 0; k < 2; k++) {
         if (lens[k] <= 24) continue;
@@ -143,7 +143,7 @@ static void dec_cb(const uint8_t *f, uint32_t len, void *v) {
     g_dec_fail++;
 }
 
-/* Baut + sendet einen EAPOL-Key-Frame (msg2/msg4) als 802.11-Data-toDS. */
+/* Builds + sends an EAPOL-Key frame (msg2/msg4) as an 802.11 data toDS frame. */
 static int send_eapol(libusb_device_handle *h, uint16_t key_info,
                       const uint8_t replay[8], const uint8_t *snonce,
                       const uint8_t *key_data, int kd_len, const uint8_t kck[16]) {
@@ -157,7 +157,7 @@ static int send_eapol(libusb_device_handle *h, uint16_t key_info,
     /* EAPOL-Key */
     int e0 = p;
     fr[p++]=0x02; fr[p++]=0x03;                 /* version 2, type Key */
-    int lenpos = p; fr[p++]=0x00; fr[p++]=0x00; /* EAPOL length (spaeter) */
+    int lenpos = p; fr[p++]=0x00; fr[p++]=0x00; /* EAPOL length (later) */
     fr[p++]=0x02;                               /* descriptor type RSN */
     fr[p++]=(key_info>>8)&0xff; fr[p++]=key_info&0xff;
     fr[p++]=0x00; fr[p++]=0x10;                 /* key length 16 (CCMP) */
@@ -166,14 +166,14 @@ static int send_eapol(libusb_device_handle *h, uint16_t key_info,
     memset(fr+p,0,16); p+=16;                   /* key IV */
     memset(fr+p,0,8);  p+=8;                    /* key RSC */
     memset(fr+p,0,8);  p+=8;                    /* key ID */
-    int micpos = p; memset(fr+p,0,16); p+=16;   /* MIC (spaeter) */
+    int micpos = p; memset(fr+p,0,16); p+=16;   /* MIC (later) */
     fr[p++]=(kd_len>>8)&0xff; fr[p++]=kd_len&0xff;
     if (kd_len) { memcpy(fr+p, key_data, kd_len); p+=kd_len; }
 
     int eapol_len = p - (e0 + 4);
     fr[lenpos] = (eapol_len>>8)&0xff; fr[lenpos+1] = eapol_len&0xff;
 
-    /* MIC = HMAC-SHA1(KCK, EAPOL-Frame mit MIC=0)[0:16] */
+    /* MIC = HMAC-SHA1(KCK, EAPOL frame with MIC=0)[0:16] */
     uint8_t dig[20];
     CCHmac(kCCHmacAlgSHA1, kck, 16, fr + e0, p - e0, dig);
     memcpy(fr + micpos, dig, 16);
@@ -181,7 +181,7 @@ static int send_eapol(libusb_device_handle *h, uint16_t key_info,
     return rtl_tx_inject(h, fr, p, RTL_RATE_6M, RTL_QSLT_VO, RTL_TX_EP_MGMT);
 }
 
-/* Krypto-Selbsttest gegen den IEEE-802.11i-Testvektor (kein Geraet noetig). */
+/* Crypto self-test against the IEEE 802.11i test vector (no device needed). */
 static int selftest(void) {
     uint8_t pmk[32];
     const uint8_t want[32] = {
@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
     uint8_t pmk[32];
     CCKeyDerivationPBKDF(kCCPBKDF2, pw, strlen(pw), (const uint8_t*)ssid, slen,
                          kCCPRFHmacAlgSHA1, 4096, pmk, 32);
-    memset(pw, 0, strlen(pw));   /* Passwort sofort aus dem Speicher loeschen */
+    memset(pw, 0, strlen(pw));   /* wipe the password from memory immediately */
 
     libusb_context *ctx = NULL;
     if (libusb_init(&ctx) != 0) return 1;
@@ -228,7 +228,7 @@ int main(int argc, char **argv) {
     if (!s.got_auth || s.auth_status!=0){ printf("Auth fehlgeschlagen (status %d).\n", s.auth_status); goto done; }
     printf("Auth OK.\n");
 
-    /* Assoc mit RSN */
+    /* Assoc with RSN */
     uint8_t rsn[]={0x30,0x14,0x01,0x00,0x00,0x0f,0xac,0x04,0x01,0x00,0x00,0x0f,0xac,0x04,0x01,0x00,0x00,0x0f,0xac,0x02,0x00,0x00};
     uint8_t as[128]; int p=0;
     as[p++]=0;as[p++]=0;as[p++]=0;as[p++]=0; memcpy(as+p,g_bssid,6);p+=6;memcpy(as+p,g_sa,6);p+=6;memcpy(as+p,g_bssid,6);p+=6;
@@ -241,7 +241,7 @@ int main(int argc, char **argv) {
     if (!s.got_assoc || s.assoc_status!=0){ printf("Assoc fehlgeschlagen (status %d).\n", s.assoc_status); goto done; }
     printf("Assoziiert. Warte auf EAPOL msg1 ...\n");
 
-    /* msg1 abwarten */
+    /* wait for msg1 */
     for (int i=0;i<20 && !s.got_m1;i++) rtl_rx_poll(h,150,cb,&s);
     if (!s.got_m1){ printf("Keine EAPOL msg1 erhalten (AP hat evtl. deauthed).\n"); goto done; }
     printf("msg1 empfangen (ANonce). Leite PTK ab ...\n");
@@ -254,7 +254,7 @@ int main(int argc, char **argv) {
     append_min_max(b,&bo,s.anonce,snonce,32);    /* min||max(ANonce,SNonce) */
     uint8_t ptk[48]; prf384(pmk, "Pairwise key expansion", b, bo, ptk);
     const uint8_t *kck = ptk;                    /* KCK = PTK[0:16] */
-    memcpy(g_tk, ptk + 32, 16);                  /* TK = PTK[32:48] fuer Unicast-CCMP */
+    memcpy(g_tk, ptk + 32, 16);                  /* TK = PTK[32:48] for unicast CCMP */
 
     /* msg2: SNonce + MIC + RSN als key data */
     if (send_eapol(h, 0x010A, s.replay_m1, snonce, rsn, sizeof(rsn), kck) != 0)

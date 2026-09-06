@@ -1,7 +1,7 @@
 #include "rtl_usb.h"
 #include <string.h>
 
-/* Bekannte RTL8812AU-PIDs (AWUS036ACH meist 0x8812 oder 0x881a). */
+/* Known RTL8812AU PIDs (AWUS036ACH usually 0x8812 or 0x881a). */
 static const uint16_t known_pids[] = {
     0x8812, 0x881a, 0x881b, 0x881c, 0x8813, 0xa811, 0x0811, 0x0820, 0x0823,
 };
@@ -26,13 +26,13 @@ int rtl_open_first(libusb_context *ctx, libusb_device_handle **out_handle,
         struct libusb_device_descriptor d;
         if (libusb_get_device_descriptor(list[i], &d) != 0) continue;
         if (d.idVendor != RTL_REALTEK_VID) continue;
-        if (!is_known_pid(d.idProduct)) continue; /* nur echte 8812au-PIDs */
+        if (!is_known_pid(d.idProduct)) continue; /* only genuine 8812au PIDs */
 
         libusb_device_handle *h = NULL;
         rc = libusb_open(list[i], &h);
         if (rc != 0) continue;
 
-        /* Falls macOS einen Klassentreiber haelt, versuchen zu loesen. */
+        /* If macOS holds a class driver, try to release it. */
         libusb_set_auto_detach_kernel_driver(h, 1);
 
         int cl = libusb_claim_interface(h, 0);
@@ -56,7 +56,7 @@ int rtl_reg_read(libusb_device_handle *h, uint16_t addr, uint8_t *buf, uint16_t 
 }
 
 int rtl_reg_write(libusb_device_handle *h, uint16_t addr, const uint8_t *buf, uint16_t len) {
-    /* libusb erwartet einen nicht-const Puffer beim OUT-Transfer. */
+    /* libusb expects a non-const buffer for the OUT transfer. */
     uint8_t tmp[64];
     if (len > sizeof(tmp)) return LIBUSB_ERROR_INVALID_PARAM;
     memcpy(tmp, buf, len);

@@ -61,10 +61,10 @@ int rtl_open_first(libusb_context *ctx, libusb_device_handle **out_handle,
 /* Register access. len is 1, 2 or 4. Returns: 0 ok, otherwise libusb error. */
 int rtl_reg_read(libusb_device_handle *h, uint16_t addr, uint8_t *buf, uint16_t len);
 int rtl_reg_write(libusb_device_handle *h, uint16_t addr, const uint8_t *buf, uint16_t len);
-/* Block-Write (bis 256 Byte) fuer Firmware-Download via Vendor-Request. */
+/* Block write (up to 256 bytes) for firmware download via vendor request. */
 int rtl_reg_write_block(libusb_device_handle *h, uint16_t addr, const uint8_t *buf, uint16_t len);
 
-/* Bequeme Breiten-Helfer (little-endian). Fehler -> Rueckgabe 0 bzw. via rc-Ptr. */
+/* Convenient width helpers (little-endian). Error -> returns 0, or via rc ptr. */
 uint8_t  rtl_read8 (libusb_device_handle *h, uint16_t addr, int *rc);
 uint16_t rtl_read16(libusb_device_handle *h, uint16_t addr, int *rc);
 uint32_t rtl_read32(libusb_device_handle *h, uint16_t addr, int *rc);
@@ -72,23 +72,23 @@ int rtl_write8 (libusb_device_handle *h, uint16_t addr, uint8_t  val);
 int rtl_write16(libusb_device_handle *h, uint16_t addr, uint16_t val);
 int rtl_write32(libusb_device_handle *h, uint16_t addr, uint32_t val);
 
-/* efuse: ein physisches Byte lesen bzw. die logische Map dekodieren.
- * map muss EFUSE_MAP_LEN gross sein. Rueckgabe 0 ok, sonst libusb-Fehler. */
+/* efuse: read one physical byte or decode the logical map.
+ * map must be EFUSE_MAP_LEN large. Returns 0 ok, otherwise libusb error. */
 int rtl_efuse_read_byte(libusb_device_handle *h, uint16_t addr, uint8_t *out);
 int rtl_efuse_read_map(libusb_device_handle *h, uint8_t *map, int maplen);
 
-/* Power-On (card enable): faehrt die aus dem Linux-HAL portierte
- * CARDEMU_TO_ACT-Sequenz. verbose!=0 druckt jeden Schritt.
- * Rueckgabe: 0 ok, <0 bei USB-Fehler, >0 = Nummer des fehlgeschlagenen
- * POLLING-Schritts (Chip-State-Machine nicht erreicht). */
+/* Power-on (card enable): runs the CARDEMU_TO_ACT sequence ported from the
+ * Linux HAL. verbose!=0 prints each step.
+ * Returns: 0 ok, <0 on USB error, >0 = number of the failed
+ * POLLING step (chip state machine not reached). */
 int rtl_power_on(libusb_device_handle *h, int verbose);
 
-/* Firmware-Download (NIC-Firmware, eingebettet). verbose!=0 druckt Fortschritt.
- * Rueckgabe: 0 ok, <0 USB-Fehler, 1 = Checksum-Timeout, 2 = WINTINI-Timeout.
- * Setzt eine erfolgreiche Power-On-Sequenz voraus. */
+/* Firmware download (NIC firmware, embedded). verbose!=0 prints progress.
+ * Returns: 0 ok, <0 USB error, 1 = checksum timeout, 2 = WINTINI timeout.
+ * Requires a successful power-on sequence. */
 int rtl_fw_download(libusb_device_handle *h, int verbose);
 
-/* Status-LED0 (SW-Control) an/aus. */
+/* Status LED0 (SW control) on/off. */
 void rtl_led_on(libusb_device_handle *h);
 void rtl_led_off(libusb_device_handle *h);
 

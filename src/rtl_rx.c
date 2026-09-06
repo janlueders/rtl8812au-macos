@@ -1,11 +1,11 @@
 #include "rtl_rx.h"
-#include "rtl_usb.h"     /* rtl_led_on/off fuer Aktivitaets-Blinken */
+#include "rtl_usb.h"     /* rtl_led_on/off for activity blinking */
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
 #include <stdint.h>
 
-/* LED bei Funkverkehr blinken lassen, gedrosselt auf ~120ms Umschaltung. */
+/* Blink the LED on radio traffic, throttled to ~120ms toggling. */
 static void led_activity(libusb_device_handle *h, int active) {
     static struct timespec last; static int inited = 0, state = 0;
     if (!active) return;
@@ -37,7 +37,7 @@ void rtl_rx_write_pcap_header(FILE *f) {
     fflush(f);
 }
 
-/* Minimaler Radiotap-Header (8 Byte, keine Felder) + 802.11-Frame als pcap-Record. */
+/* Minimal radiotap header (8 bytes, no fields) + 802.11 frame as a pcap record. */
 static void write_frame(FILE *f, const uint8_t *frame, uint32_t len) {
     struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
     uint8_t rtap[8] = { 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00 }; /* ver,pad,len=8,present=0 */
@@ -49,7 +49,7 @@ static void write_frame(FILE *f, const uint8_t *frame, uint32_t len) {
     fwrite(frame, 1, len, f);
 }
 
-/* Einen USB-RX-Transfer (ggf. mehrere aggregierte Subframes) verarbeiten. */
+/* Process one USB RX transfer (possibly several aggregated subframes). */
 static long parse_bulk(const uint8_t *buf, int total, FILE *f) {
     long n = 0;
     const uint8_t *pbuf = buf;
@@ -66,7 +66,7 @@ static long parse_bulk(const uint8_t *buf, int total, FILE *f) {
         uint32_t pkt_offset = RTL_RXDESC_SIZE + drvinfo_sz + shift_sz + pkt_len;
         if (pkt_len == 0 || (int)pkt_offset > transfer_len) break;
 
-        if (!rpt_sel) { /* normaler 802.11-Frame (auch crc_err: Monitor will alles) */
+        if (!rpt_sel) { /* normal 802.11 frame (incl. crc_err: monitor wants everything) */
             const uint8_t *frame = pbuf + RTL_RXDESC_SIZE + drvinfo_sz + shift_sz;
             write_frame(f, frame, pkt_len);
             n++;
@@ -90,9 +90,9 @@ long rtl_rx_stream(libusb_device_handle *h, FILE *f) {
             frames += parse_bulk(buf, got, f);
             led_activity(h, 1);
             fflush(f);
-            if (ferror(f)) break;   /* FIFO geschlossen -> Ende */
+            if (ferror(f)) break;   /* FIFO closed -> end */
         } else if (rc != 0 && rc != LIBUSB_ERROR_TIMEOUT) {
-            break;                  /* Geraet weg */
+            break;                  /* device gone */
         }
     }
     free(buf);
@@ -151,8 +151,8 @@ long rtl_rx_capture(libusb_device_handle *h, FILE *f, int seconds, int verbose) 
     if (!buf) return -1;
 
     long total_frames = 0;
-    long xfers = 0;            /* nicht-leere Bulk-Transfers */
-    long total_bytes = 0;      /* rohe empfangene Bytes */
+    long xfers = 0;            /* non-empty bulk transfers */
+    long total_bytes = 0;      /* raw received bytes */
     long timeouts = 0;
     uint32_t first_d0 = 0; int have_first = 0;
     time_t end = time(NULL) + seconds;

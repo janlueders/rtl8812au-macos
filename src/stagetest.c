@@ -1,16 +1,16 @@
 /*
- * stagetest — stufenweise, kontrollierte Inbetriebnahme fuer sicheres Testen.
+ * stagetest — staged, controlled bring-up for safe testing.
  *
- * Nutzung: ./stagetest <stufe>
- *   1 = Power-On
- *   2 = + Firmware
- *   3 = + MAC-Init + LED an        (LED muss hier angehen; noch KEIN RF/TX)
- *   4 = + BB-Init
- *   5 = + RF-Init                  (RF-Pfad an, aber kein TX)
- *   6 = + LCK + IQK                (Kalibrierung; internes TX — hoechste Stufe)
- *   7 = + Kanal + Monitor-RCR
+ * Usage: ./stagetest <stage>
+ *   1 = power-on
+ *   2 = + firmware
+ *   3 = + MAC init + LED on        (LED must come on here; still NO RF/TX)
+ *   4 = + BB init
+ *   5 = + RF init                  (RF path on, but no TX)
+ *   6 = + LCK + IQK                (calibration; internal TX — highest stage)
+ *   7 = + channel + monitor RCR
  *
- * Jede Stufe druckt ihren Rueckgabecode. Bricht bei Fehler ab.
+ * Each stage prints its return code. Aborts on error.
  */
 #include <stdio.h>
 #include <stdlib.h>

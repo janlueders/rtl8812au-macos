@@ -1,8 +1,8 @@
 /*
- * fwload — Meilenstein 2c: Firmware in den RTL8812AU laden.
+ * fwload — Milestone 2c: load firmware into the RTL8812AU.
  *
- * Erfolgskriterium: nach dem Download meldet der Chip WINTINI_RDY (Firmware
- * laeuft). Das ist der native macOS-Gegenwert zu FirmwareDownload8812.
+ * Success criterion: after the download the chip reports WINTINI_RDY (firmware
+ * running). This is the native macOS equivalent of FirmwareDownload8812.
  */
 #include <stdio.h>
 #include "rtl_usb.h"

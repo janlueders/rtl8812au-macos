@@ -1,14 +1,14 @@
 /*
- * associate — IE2: Authentifizierung (Open) + Assoziierung mit einem AP.
+ * associate — IE2: authentication (Open) + association with an AP.
  *
- * Verifizierbar OHNE Passwort: Open-Auth und Assoc laufen vor dem WPA-Handshake.
- * Der AP antwortet mit Auth-Response und Assoc-Response (Statuscodes).
+ * Verifiable WITHOUT a password: Open auth and assoc run before the WPA handshake.
+ * The AP answers with an Auth-Response and an Assoc-Response (status codes).
  *
- * Nutzung: ./associate <kanal> <bssid aa:bb:cc:dd:ee:ff> <ssid>
- * Beispiel: ./associate 6 04:b4:fe:81:91:cf "FRITZ!Box 6360 Cable"
+ * Usage: ./associate <channel> <bssid aa:bb:cc:dd:ee:ff> <ssid>
+ * Example: ./associate 6 04:b4:fe:81:91:cf "FRITZ!Box 6360 Cable"
  *
- * Setzt REG_MACID = unsere MAC, damit die Hardware Unicast-Antworten des AP
- * automatisch bestaetigt (ACK), sonst bricht der AP ab.
+ * Sets REG_MACID = our MAC so the hardware automatically ACKs the AP's
+ * unicast responses, otherwise the AP aborts.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,12 +33,12 @@ static void cb(const uint8_t *f, uint32_t len, void *v) {
     assoc_ctx *c = (assoc_ctx *)v;
     if (len < 24) return;
     uint8_t fc = f[0];
-    if (memcmp(f + 10, g_bssid, 6) != 0) return;   /* SA = Ziel-AP? */
-    if (memcmp(f + 4, g_sa, 6) != 0) return;       /* DA = wir? */
+    if (memcmp(f + 10, g_bssid, 6) != 0) return;   /* SA = target AP? */
+    if (memcmp(f + 4, g_sa, 6) != 0) return;       /* DA = us? */
     if (fc == 0xB0 && len >= 30) {                 /* Authentication */
-        c->auth_status = f[28] | (f[29] << 8);     /* status bei body+4 */
+        c->auth_status = f[28] | (f[29] << 8);     /* status at body+4 */
     } else if (fc == 0x10 && len >= 30) {          /* Assoc Response */
-        c->assoc_status = f[26] | (f[27] << 8);    /* status bei body+2 */
+        c->assoc_status = f[26] | (f[27] << 8);    /* status at body+2 */
         c->aid = (f[28] | (f[29] << 8)) & 0x3fff;
     }
 }
@@ -57,7 +57,7 @@ int main(int argc, char **argv) {
     if (rc || !h) { printf("Kein Geraet.\n"); libusb_exit(ctx); return 2; }
     if (rtl_hal_full_init(h, channel, 0, 0) != 0) { printf("Init fehlgeschlagen.\n"); goto done; }
 
-    /* Eigene MAC ins MACID-Register -> Hardware-Auto-ACK fuer Antworten an uns. */
+    /* Our own MAC into the MACID register -> hardware auto-ACK for responses to us. */
     rtl_reg_write(h, REG_MACID, g_sa, 6);
 
     assoc_ctx c = { -1, -1, 0 };

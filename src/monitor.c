@@ -1,12 +1,12 @@
 /*
- * monitor — Endziel M4: Monitor-Mode-Capture in eine pcap-Datei.
+ * monitor — final goal M4: monitor-mode capture into a pcap file.
  *
- * Nutzung:  ./monitor [kanal] [sekunden] [ausgabe.pcap]
- * Standard: Kanal 6, 15 s, capture.pcap
+ * Usage:    ./monitor [channel] [seconds] [output.pcap]
+ * Default:  channel 6, 15 s, capture.pcap
  *
- * Ablauf: Geraet oeffnen -> volle Inbetriebnahme (rtl_hal_full_init) ->
- * 802.11-Frames von 0x81 lesen -> als pcap mit Radiotap schreiben.
- * Ergebnis in Wireshark/tshark oeffenbar.
+ * Flow: open device -> full bring-up (rtl_hal_full_init) ->
+ * read 802.11 frames from 0x81 -> write as pcap with radiotap.
+ * Result can be opened in Wireshark/tshark.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,7 +18,7 @@ int main(int argc, char **argv) {
     int channel   = (argc > 1) ? atoi(argv[1]) : 6;
     int seconds   = (argc > 2) ? atoi(argv[2]) : 15;
     const char *out = (argc > 3) ? argv[3] : "capture.pcap";
-    int with_cal  = (argc > 4) ? atoi(argv[4]) : 0;  /* 0 = RX-only (sicher) */
+    int with_cal  = (argc > 4) ? atoi(argv[4]) : 0;  /* 0 = RX-only (safe) */
 
     libusb_context *ctx = NULL;
     if (libusb_init(&ctx) != 0) { fprintf(stderr, "libusb_init fehlgeschlagen\n"); return 1; }

@@ -1,7 +1,7 @@
 #include "rtl_tx.h"
 #include <string.h>
 
-/* SET_BITS_TO_LE_4BYTE-Aequivalent: nbits ab bitoff im LE-DWord bei byteoff. */
+/* SET_BITS_TO_LE_4BYTE equivalent: nbits starting at bitoff in the LE dword at byteoff. */
 static void set_bits(uint8_t *d, int byteoff, int bitoff, int nbits, uint32_t val) {
     uint32_t cur = (uint32_t)d[byteoff] | ((uint32_t)d[byteoff+1] << 8) |
                    ((uint32_t)d[byteoff+2] << 16) | ((uint32_t)d[byteoff+3] << 24);
@@ -13,7 +13,7 @@ static void set_bits(uint8_t *d, int byteoff, int bitoff, int nbits, uint32_t va
     d[byteoff+3] = (cur >> 24) & 0xff;
 }
 
-/* rtl8812a_cal_txdesc_chksum: XOR der ersten 32 Byte (16 u16), Feld vorher 0. */
+/* rtl8812a_cal_txdesc_chksum: XOR of the first 32 bytes (16 u16), field zeroed first. */
 static void tx_checksum(uint8_t *desc) {
     set_bits(desc, 28, 0, 16, 0);
     uint16_t cs = 0;
@@ -44,7 +44,7 @@ int rtl_tx_inject(libusb_device_handle *h, const uint8_t *frame, int len,
     set_bits(desc, 12, 10, 1, 1);                   /* DISABLE_FB */
     /* dword4(+16): tx_rate */
     set_bits(desc, 16, 0, 7, rate);                 /* TX_RATE */
-    /* dword8(+32): hwseq_en -> Hardware vergibt Sequenznummer */
+    /* dword8(+32): hwseq_en -> hardware assigns the sequence number */
     set_bits(desc, 32, 15, 1, 1);                   /* HWSEQ_EN */
 
     tx_checksum(desc);

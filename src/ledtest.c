@@ -1,8 +1,8 @@
 /*
- * ledtest — sichtbarer Beweis der Hardware-Kontrolle: die Status-LED blinken.
+ * ledtest — visible proof of hardware control: blink the status LED.
  *
- * Ablauf: oeffnen -> Power-On -> Firmware -> LED0 N-mal an/aus schalten.
- * Du solltest die LED am Adapter physisch blinken sehen.
+ * Flow: open -> power-on -> firmware -> toggle LED0 on/off N times.
+ * You should physically see the LED on the adapter blink.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
         rtl_led_on(h);  printf("  [%2d] AN\n",  i + 1); fflush(stdout); usleep(300000);
         rtl_led_off(h); printf("  [%2d] AUS\n", i + 1); fflush(stdout); usleep(300000);
     }
-    rtl_led_on(h); /* am Ende an lassen */
+    rtl_led_on(h); /* leave it on at the end */
     printf("\nFertig. LED bleibt an.\n");
 
     if (claimed) libusb_release_interface(h, 0);

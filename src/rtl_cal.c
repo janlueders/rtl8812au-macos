@@ -219,7 +219,7 @@ static void iqk_rx_fill_iqc(libusb_device_handle *h, int path,
 	}
 }
 
-/* _iqk_tx_fill_iqc_8812a  (rf->dpk_done == 0 -> BIT(29) wird gesetzt) */
+/* _iqk_tx_fill_iqc_8812a  (rf->dpk_done == 0 -> BIT(29) is set) */
 static void iqk_tx_fill_iqc(libusb_device_handle *h, int path,
 			    unsigned int TX_X, unsigned int TX_Y)
 {
@@ -477,7 +477,7 @@ static void iqk_tx(libusb_device_handle *h, int is_5g)
 				delay_count++;
 			}
 			RFDBG("[cal] TX delay_count = %d\n", delay_count);
-			if (delay_count < 20) { /* sonst cal_retry++ */
+			if (delay_count < 20) { /* otherwise cal_retry++ */
 				TX0_fail = (int)bb_get(h, 0xd00, BIT(12));
 				TX1_fail = (int)bb_get(h, 0xd40, BIT(12));
 				if (!(TX0_fail || TX0_finish)) {
@@ -555,7 +555,7 @@ static void iqk_tx(libusb_device_handle *h, int is_5g)
 	bb_set(h, 0x82c, BIT(31), 0x1); /* Page C1 */
 
 	if (VDF_enable == 1) {
-		/* VDF deaktiviert */
+		/* VDF disabled */
 	} else {
 		bb_set(h, 0x82c, BIT(31), 0x0); /* Page C */
 		if (TX0_finish) {
@@ -581,7 +581,7 @@ static void iqk_tx(libusb_device_handle *h, int is_5g)
 		bb_set(h, 0x978, BIT(31), 0x1);
 		bb_set(h, 0x97c, BIT(31), 0x0);
 		bb_write(h, 0x90c, 0x00008000);
-		/* support_interface == USB -> nicht PCIE */
+		/* support_interface == USB -> not PCIE */
 		bb_write(h, 0x984, 0x0046a890);
 		if (rfe_type == 1) {
 			bb_write(h, 0xcb0, 0x77777717);
@@ -652,7 +652,7 @@ static void iqk_tx(libusb_device_handle *h, int is_5g)
 				delay_count++;
 			}
 			RFDBG("[cal] RX delay_count = %d\n", delay_count);
-			if (delay_count < 20) { /* sonst cal_retry++ */
+			if (delay_count < 20) { /* otherwise cal_retry++ */
 				RX0_fail = (int)bb_get(h, 0xd00, BIT(11));
 				RX1_fail = (int)bb_get(h, 0xd40, BIT(11));
 				if (!(RX0_fail || RX0_finish) && TX0_finish) {
@@ -801,7 +801,7 @@ static void phy_lc_calibrate(libusb_device_handle *h)
 	lc_cal = rf_get(h, RF_PATH_A, RF_0x18, RFREGOFFSETMASK);
 
 	if ((reg0x914 & 0x70000) != 0) {
-		/* ContTx: laut Original NICHT abschalten (Workaround). */
+		/* ContTx: per the original, do NOT turn off (workaround). */
 	} else {
 		/* Packet Tx-ing: pause Tx. */
 		bb_write1(h, REG_TXPAUSE, 0xFF);
@@ -824,10 +824,10 @@ static void phy_lc_calibrate(libusb_device_handle *h)
 	rf_set(h, RF_PATH_A, RF_0xb4, RFREGOFFSETMASK, tmp & ~BIT(14));
 
 	/* Restore original situation.
-	 * Hinweis: das Original prueft hier (reg0x914 & 70000) -- eine bewusst
-	 * uebernommene Eigenheit (dezimal 70000, nicht 0x70000). Faithful portiert. */
+	 * Note: the original checks (reg0x914 & 70000) here -- a deliberately
+	 * carried-over quirk (decimal 70000, not 0x70000). Faithfully ported. */
 	if ((reg0x914 & 70000) != 0) {
-		/* ContTx case: kein Restore (Workaround). */
+		/* ContTx case: no restore (workaround). */
 	} else {
 		bb_write1(h, REG_TXPAUSE, 0x00);
 	}
@@ -837,10 +837,10 @@ static void phy_lc_calibrate(libusb_device_handle *h)
 }
 
 /* ========================================================================= */
-/* Oeffentliche API                                                          */
+/* Public API                                                                */
 /* ========================================================================= */
 
-/* Aktuelles Band aus RF-Reg 0x18 (Kanal in Byte0) ermitteln. */
+/* Determine the current band from RF-Reg 0x18 (channel in byte0). */
 static int cal_is_5g(libusb_device_handle *h)
 {
 	uint32_t chnl = rf_get(h, RF_PATH_A, RF_0x18, 0xff);

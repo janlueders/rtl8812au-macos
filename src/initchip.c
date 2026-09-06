@@ -1,13 +1,13 @@
 /*
- * initchip — Meilenstein 2 (Teil 2): den Chip per Power-On-Sequenz aktivieren.
+ * initchip — Milestone 2 (part 2): activate the chip via the power-on sequence.
  *
- * Erfolgskriterium: die POLLING-Schritte (Power-Ready, MAC-on) laufen durch.
- * Das beweist, dass der Chip unsere Register-Writes ausfuehrt und seine
- * Hardware-State-Machine reagiert — der native macOS-Gegenwert zum Linux
+ * Success criterion: the POLLING steps (power-ready, MAC-on) complete.
+ * This proves the chip executes our register writes and that its
+ * hardware state machine responds — the native macOS equivalent of the Linux
  * "card enable".
  *
- * Hinweis: die ECHTE MAC kommt erst nach efuse-Read (naechster Schritt);
- * direkt nach Power-On kann 0x0610 noch den Default zeigen.
+ * Note: the REAL MAC only comes after the efuse read (next step);
+ * right after power-on, 0x0610 may still show the default.
  */
 #include <stdio.h>
 #include "rtl_usb.h"

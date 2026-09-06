@@ -1,11 +1,11 @@
 /*
- * scan — WLAN-Scanner (erster Meilenstein Richtung Internet-Client).
+ * scan — WLAN scanner (first milestone toward an internet client).
  *
- * Faehrt den Chip hoch, huepft ueber 2.4- und 5-GHz-Kanaele, sammelt Beacons
- * und Probe-Responses und listet die gefundenen Netze (SSID, BSSID, Kanal,
- * Verschluesselung). Reiner Empfang, kein TX.
+ * Brings the chip up, hops across 2.4- and 5-GHz channels, collects beacons
+ * and probe responses, and lists the networks found (SSID, BSSID, channel,
+ * encryption). Receive only, no TX.
  *
- * Nutzung: ./scan [sekunden_pro_kanal_ms]   (Standard 500 ms)
+ * Usage: ./scan [ms_per_channel]   (default 500 ms)
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,7 +37,7 @@ static void scan_cb(const uint8_t *f, uint32_t len, void *v) {
     }
 
     for (int i = 0; i < s->count; i++)
-        if (memcmp(s->nets[i].bssid, bssid, 6) == 0) return;   /* schon bekannt */
+        if (memcmp(s->nets[i].bssid, bssid, 6) == 0) return;   /* already known */
     if (s->count < 512) {
         net_t *n = &s->nets[s->count++];
         memcpy(n->bssid, bssid, 6);

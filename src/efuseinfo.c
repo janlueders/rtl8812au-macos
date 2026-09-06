@@ -1,8 +1,8 @@
 /*
- * efuseinfo — Meilenstein 2b: efuse lesen und die ECHTE MAC-Adresse zeigen.
+ * efuseinfo — Milestone 2b: read efuse and show the REAL MAC address.
  *
- * Ablauf: Geraet oeffnen -> Power-On (efuse-Makro verfuegbar) -> physische
- * efuse in die logische Map dekodieren -> MAC aus Offset 0xD7 ausgeben.
+ * Flow: open device -> power-on (efuse macro available) -> decode the physical
+ * efuse into the logical map -> print MAC from offset 0xD7.
  */
 #include <stdio.h>
 #include "rtl_usb.h"
