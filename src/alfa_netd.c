@@ -217,6 +217,26 @@ static void arp_request(libusb_device_handle *h, const uint8_t *target_ip) {
     send_l3(h, bc, ETH_ARP, a, 28);
 }
 
+/* Isolation-only: same ARP-who-has, but sent as a PLAIN (unencrypted, no
+ * CCMP) broadcast Data frame -- bypasses rtl_ccmp_encrypt_frame entirely, to
+ * tell apart "broadcast Data frames are mishandled" from "our CCMP encrypt
+ * path for broadcast is the specific bug". */
+static void arp_request_plain(libusb_device_handle *h, const uint8_t *target_ip) {
+    uint8_t a[28]; int p=0;
+    a[p++]=0;a[p++]=1; a[p++]=0x08;a[p++]=0x00; a[p++]=6;a[p++]=4; a[p++]=0;a[p++]=1;
+    memcpy(a+p,K.sa,6);p+=6; memcpy(a+p,g_our_ip,4);p+=4;
+    memset(a+p,0,6);p+=6; memcpy(a+p,target_ip,4);p+=4;
+
+    uint8_t fr[64]; int q=0;
+    fr[q++]=0x08; fr[q++]=0x01; fr[q++]=0; fr[q++]=0;   /* Data, toDS, NOT protected */
+    uint8_t bc[6]; memset(bc,0xff,6);
+    memcpy(fr+q,K.bssid,6); q+=6; memcpy(fr+q,K.sa,6); q+=6; memcpy(fr+q,bc,6); q+=6;
+    fr[q++]=0; fr[q++]=0;
+    uint8_t snap[8]={0xAA,0xAA,0x03,0,0,0,0x08,0x06}; memcpy(fr+q,snap,8); q+=8;
+    memcpy(fr+q,a,28); q+=28;
+    rtl_tx_inject(h, fr, q, RTL_RATE_6M, RTL_QSLT_BE, RTL_TX_EP_MGMT);
+}
+
 /* ---- RX-Dispatch ---- */
 static void on_frame(const uint8_t *f, uint32_t len, void *v) {
     (void)v;
@@ -340,14 +360,24 @@ int main(int argc, char **argv) {
      * all our encrypted broadcast TX. Probe a few likely-live IPs including
      * the known gateway. */
     { uint8_t probe_ip[4] = {192,168,178,1};
-      printf("ARP-Isolationstest: sende 5x ARP-who-has 192.168.178.1 (encrypted broadcast) ...\n");
+      printf("ARP-Isolationstest A: sende 5x ARP-who-has 192.168.178.1 (encrypted/CCMP broadcast) ...\n");
       for (int t=0;t<5;t++){ arp_request(h,probe_ip); rtl_rx_poll(h,300,on_frame,h); }
-      printf("  ARP-Antworten insgesamt empfangen: %ld\n", c_arp_reply_any);
-      if (c_arp_reply_any==0)
-        printf("  -> KEINE ARP-Antwort. Encrypted-Broadcast-TX kommt vermutlich generell nicht an\n"
-               "     (DHCP-spezifisch ist es dann NICHT). Weiter zur DHCP-Diagnose trotzdem:\n");
+      long enc_replies = c_arp_reply_any;
+      printf("  Antworten: %ld\n", enc_replies);
+
+      printf("ARP-Isolationstest B: sende 5x ARP-who-has 192.168.178.1 (PLAIN/unencrypted broadcast) ...\n");
+      for (int t=0;t<5;t++){ arp_request_plain(h,probe_ip); rtl_rx_poll(h,300,on_frame,h); }
+      long plain_replies = c_arp_reply_any - enc_replies;
+      printf("  Antworten: %ld\n", plain_replies);
+
+      if (enc_replies>0)
+        printf("  -> Encrypted broadcast TX funktioniert. Problem ist DHCP/Server-spezifisch.\n");
+      else if (plain_replies>0)
+        printf("  -> UNENCRYPTED broadcast TX funktioniert, ENCRYPTED nicht -> Bug in rtl_ccmp_encrypt_frame.\n");
       else
-        printf("  -> ARP-Antwort(en) da: encrypted broadcast TX funktioniert. Problem ist DHCP/Server-spezifisch.\n");
+        printf("  -> Auch PLAIN broadcast TX bekommt keine Antwort -> genereller Broadcast-Data-TX-Fehler\n"
+               "     (unabhaengig von Verschluesselung; evtl. Policy-Drop unverschluesselter Data-Frames\n"
+               "      im Netz ist ebenfalls moeglich und wuerde dieses Ergebnis erklaeren).\n");
     }
 
     /* DHCP */
