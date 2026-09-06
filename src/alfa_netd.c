@@ -47,6 +47,7 @@ static uint8_t g_dtype = 0, g_yi[4], g_dmask[4], g_dgw[4], g_dsrv[4];
 static long c_utun_out = 0, c_tx = 0, c_rx_ip = 0, c_rx_other = 0, c_rx_dec = 0;
 static long c_icmp_out = 0, c_icmp_in = 0, c_uni_seen = 0, c_uni_decfail = 0;
 static long c_dhcp_seen = 0;   /* UDP frames to dst port 68 (any DHCP reply) */
+static long c_bcast_seen = 0, c_bcast_decfail = 0; /* broadcast frames from the AP: seen / GTK-decrypt failed */
 /* Routing-Sicherung, damit wir das Netz nie kaputt zuruecklassen. */
 static char g_orig_gw[64] = "";
 static int  g_changed_default = 0;
@@ -119,6 +120,22 @@ static uint16_t csum16(const uint8_t *d, int n, uint32_t init) {
     return (uint16_t)~s;
 }
 
+/* UDP checksum with the IPv4 pseudo-header. Real DHCP clients always send a
+ * proper checksum; we previously sent 0 (technically legal for IPv4 but a
+ * concrete difference from every real client, worth removing as a variable). */
+static uint16_t udp_csum(const uint8_t *src4, const uint8_t *dst4, const uint8_t *udp, int ulen) {
+    uint32_t s = 0;
+    s += (src4[0]<<8)|src4[1]; s += (src4[2]<<8)|src4[3];
+    s += (dst4[0]<<8)|dst4[1]; s += (dst4[2]<<8)|dst4[3];
+    s += 17;            /* protocol */
+    s += (uint32_t)ulen;
+    for (int i = 0; i + 1 < ulen; i += 2) s += (udp[i] << 8) | udp[i+1];
+    if (ulen & 1) s += udp[ulen-1] << 8;
+    while (s >> 16) s = (s & 0xffff) + (s >> 16);
+    uint16_t cs = (uint16_t)~s;
+    return cs ? cs : 0xffff;   /* computed 0 must be sent as all-ones (RFC 768) */
+}
+
 /* ---- DHCP: DISCOVER/REQUEST bauen, OFFER/ACK parsen ---- */
 static int dhcp_build(uint8_t *out, uint8_t msgtype, const uint8_t *xid,
                       const uint8_t *req_ip, const uint8_t *server_ip) {
@@ -140,12 +157,15 @@ static int dhcp_build(uint8_t *out, uint8_t msgtype, const uint8_t *xid,
     uint8_t udp[8+600]; int ul = 8 + bootp_len;
     udp[0]=0;udp[1]=68; udp[2]=0;udp[3]=67; udp[4]=(ul>>8);udp[5]=ul&0xff; udp[6]=0;udp[7]=0;
     memcpy(udp+8, bp, bootp_len);
+    static const uint8_t src0[4] = {0,0,0,0}, dstbc[4] = {255,255,255,255};
+    uint16_t uc = udp_csum(src0, dstbc, udp, ul);
+    udp[6] = (uint8_t)(uc>>8); udp[7] = (uint8_t)(uc&0xff);
 
     /* IPv4 (0.0.0.0 -> 255.255.255.255) */
     int il = 20 + ul; int o = 0;
     out[o++]=0x45; out[o++]=0x00; out[o++]=(il>>8); out[o++]=il&0xff;
     out[o++]=0;out[o++]=0; out[o++]=0x40;out[o++]=0; out[o++]=64; out[o++]=17; /* TTL, proto UDP */
-    out[o++]=0;out[o++]=0;                          /* hdr csum (spaeter) */
+    out[o++]=0;out[o++]=0;                          /* hdr csum (filled below) */
     memset(out+o,0,4); o+=4;                        /* src 0.0.0.0 */
     memset(out+o,0xff,4); o+=4;                     /* dst 255.255.255.255 */
     uint16_t ic = csum16(out, 20, 0); out[10]=ic>>8; out[11]=ic&0xff;
@@ -158,8 +178,7 @@ static int is_dhcp_reply(const uint8_t *ip, int len, uint8_t *out_type,
     if (len < 20 + 8 + 240) return 0;
     if (ip[9] != 17) return 0;                      /* UDP */
     const uint8_t *udp = ip + (ip[0]&0x0f)*4;
-    if (!((udp[0]==0&&udp[1]==67)||(udp[2]==0&&udp[3]==68))) { /* 67->68 */ }
-    if (udp[2]!=0 || udp[3]!=68) return 0;          /* dst port 68 */
+    if (udp[2]!=0 || udp[3]!=68) return 0;          /* dst port 68 (DHCP client) */
     const uint8_t *bp = udp + 8;
     if (bp[236]!=0x63||bp[237]!=0x82||bp[238]!=0x53||bp[239]!=0x63) return 0;
     memcpy(yiaddr, bp+16, 4);                        /* yiaddr */
@@ -198,12 +217,14 @@ static void on_frame(const uint8_t *f, uint32_t len, void *v) {
     int bcast = (f[4] & 0x01);
     int to_us = (memcmp(f+4, K.sa, 6) == 0);
     if (!bcast && !to_us) return;
-    if (to_us && !bcast) c_uni_seen++;                /* Unicast-Frame an uns (Gateway-Antwort?) */
+    if (to_us && !bcast) c_uni_seen++;                /* unicast frame to us (gateway/DHCP reply?) */
+    if (bcast) c_bcast_seen++;                        /* broadcast frame from the AP (e.g. DHCP OFFER) */
     const uint8_t *key = bcast ? K.gtk : K.tk;
     uint8_t out[2048]; int ol=0;
     int elen = (int)len - 4;                          /* FCS */
     if (elen<=24 || rtl_ccmp_decrypt_frame(key, f, elen, out, &ol) != 0) {
         if (to_us && !bcast) c_uni_decfail++;
+        if (bcast) c_bcast_decfail++;
         return;
     }
     if (ol < 8 || !(out[0]==0xAA&&out[1]==0xAA&&out[2]==0x03)) return;
@@ -312,9 +333,13 @@ int main(int argc, char **argv) {
         for(int r=0;r<5 && g_dtype!=2;r++) rtl_rx_poll(h,120,on_frame,h);
         if (t==9 || t==19) printf("  ... DISCOVER %d gesendet, noch kein OFFER (dhcp_seen=%ld)\n", t+1, c_dhcp_seen); }
     if (g_dtype!=2){
-        printf("Kein DHCP-OFFER. Diagnose: dhcp_frames=%ld entschluesselte=%ld (rx_ip=%ld rx_other=%ld uni_seen=%ld)\n",
-               c_dhcp_seen, c_rx_dec, c_rx_ip, c_rx_other, c_uni_seen);
-        printf("  (dhcp_frames>0 -> OFFER kam an, parst aber nicht; =0 -> DISCOVER erreicht Server nicht)\n");
+        printf("Kein DHCP-OFFER. Diagnose: dhcp_frames=%ld entschluesselte=%ld (rx_ip=%ld rx_other=%ld)\n",
+               c_dhcp_seen, c_rx_dec, c_rx_ip, c_rx_other);
+        printf("  unicast: seen=%ld decfail=%ld   broadcast: seen=%ld decfail=%ld\n",
+               c_uni_seen, c_uni_decfail, c_bcast_seen, c_bcast_decfail);
+        printf("  (bcast seen>0 & decfail>0 -> GTK broadcast decrypt is broken here;\n");
+        printf("   bcast seen>0 & decfail=0 & dhcp_frames=0 -> OFFER never among the broadcasts, i.e. server didn't answer;\n");
+        printf("   bcast seen=0 -> nothing at all arrives from the AP, not even ambient traffic -> RX/assoc dead)\n");
         goto done;
     }
     memcpy(g_our_ip,g_yi,4); memcpy(g_mask,g_dmask,4); memcpy(g_gw_ip,g_dgw,4);
