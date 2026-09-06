@@ -123,6 +123,80 @@ int rtl_aes_unwrap(const uint8_t *kek, const uint8_t *wrapped, int wlen, uint8_t
     return 0;
 }
 
+/* AAD + Nonce aus dem 802.11-Header bauen (wpa_supplicant ccmp_aad_nonce).
+ * ccmp = Zeiger auf den 8-Byte-CCMP-Header (nach dem MAC-Header). */
+static int ccmp_aad_nonce(const uint8_t *f, int hdrlen, int qos, int a4,
+                          const uint8_t *ccmp, uint8_t *aad, int *aadlen, uint8_t nonce[13]) {
+    uint16_t fc = (uint16_t)(f[0] | (f[1] << 8));
+    uint16_t stype = fc & 0x00F0;
+    if ((fc & 0x000C) == 0x0008) {          /* Data */
+        fc &= ~0x0070;                       /* Subtype-Bits 4,5,6 maskieren */
+        if (stype & 0x0080) fc &= ~0x8000;   /* QoS -> Order maskieren */
+    }
+    fc &= ~0x0800; fc &= ~0x1000; fc &= ~0x2000; /* Retry, PwrMgmt, MoreData */
+    fc &= ~0x4000;                                /* Protected */
+
+    int p = 0;
+    aad[p++] = fc & 0xff; aad[p++] = (fc >> 8) & 0xff;
+    memcpy(aad + p, f + 4, 18); p += 18;         /* A1 + A2 + A3 */
+    aad[p++] = f[22] & 0x0f; aad[p++] = 0x00;    /* SC: Frag behalten, Seq maskieren */
+    if (a4) { memcpy(aad + p, f + 24, 6); p += 6; }
+    if (qos) { aad[p++] = f[hdrlen - 2] & 0x0f; aad[p++] = 0x00; }
+    *aadlen = p;
+
+    nonce[0] = (uint8_t)(qos ? (f[hdrlen - 2] & 0x0f) : 0);
+    memcpy(nonce + 1, f + 10, 6);                /* A2 */
+    nonce[7]=ccmp[7]; nonce[8]=ccmp[6]; nonce[9]=ccmp[5];
+    nonce[10]=ccmp[4]; nonce[11]=ccmp[1]; nonce[12]=ccmp[0];
+    return 0;
+}
+
+int rtl_ccmp_decrypt_frame(const uint8_t key[16], const uint8_t *f, int len,
+                           uint8_t *out, int *outlen) {
+    uint8_t fc0 = f[0], fc1 = f[1];
+    int qos = ((fc0 & 0xF0) == 0x80);
+    int a4  = ((fc1 & 0x03) == 0x03);
+    int hdrlen = 24 + (a4 ? 6 : 0) + (qos ? 2 : 0);
+    if (len < hdrlen + 8 + 8) return -1;
+    const uint8_t *ccmp = f + hdrlen;
+    if (!(ccmp[3] & 0x20)) return -1;            /* ExtIV muss gesetzt sein (CCMP) */
+
+    uint8_t aad[32], nonce[13]; int al = 0;
+    ccmp_aad_nonce(f, hdrlen, qos, a4, ccmp, aad, &al, nonce);
+
+    int clen = len - hdrlen - 8 - 8;             /* minus CCMP-Header minus MIC */
+    const uint8_t *cipher = f + hdrlen + 8;
+    const uint8_t *mic = cipher + clen;
+    if (clen <= 0) return -1;
+    int r = rtl_aes_ccm(0, key, nonce, 13, aad, al, cipher, clen, out, NULL, 8, mic);
+    if (r == 0) *outlen = clen;
+    return r;
+}
+
+int rtl_ccmp_encrypt_frame(const uint8_t key[16], const uint8_t *hdr, int hdrlen,
+                           const uint8_t *payload, int plen, uint64_t pn,
+                           uint8_t *out, int *outlen) {
+    memcpy(out, hdr, hdrlen);
+    out[1] |= 0x40;                              /* Protected-Bit setzen */
+    uint8_t *ccmp = out + hdrlen;
+    ccmp[0] = pn & 0xff; ccmp[1] = (pn >> 8) & 0xff; ccmp[2] = 0x00;
+    ccmp[3] = 0x20;                              /* ExtIV, KeyID 0 */
+    ccmp[4] = (pn >> 16) & 0xff; ccmp[5] = (pn >> 24) & 0xff;
+    ccmp[6] = (pn >> 32) & 0xff; ccmp[7] = (pn >> 40) & 0xff;
+
+    int qos = ((out[0] & 0xF0) == 0x80);
+    int a4  = ((out[1] & 0x03) == 0x03);
+    uint8_t aad[32], nonce[13]; int al = 0;
+    ccmp_aad_nonce(out, hdrlen, qos, a4, ccmp, aad, &al, nonce);
+
+    uint8_t *cipher = out + hdrlen + 8;
+    uint8_t mic[8];
+    rtl_aes_ccm(1, key, nonce, 13, aad, al, payload, plen, cipher, mic, 8, NULL);
+    memcpy(cipher + plen, mic, 8);
+    *outlen = hdrlen + 8 + plen + 8;
+    return 0;
+}
+
 /* Selbsttest: NIST SP 800-38C, Example 1 (M=4, L=8, nonce 7B). */
 int rtl_ccmp_selftest(void) {
     uint8_t key[16]; for (int i = 0; i < 16; i++) key[i] = 0x40 + i;

@@ -67,7 +67,7 @@ scan: src/scan.c src/rtl_hal.c src/rtl_rx.c $(CORE)
 associate: src/associate.c src/rtl_hal.c src/rtl_rx.c src/rtl_tx.c $(CORE)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-connect: src/connect.c src/rtl_hal.c src/rtl_rx.c src/rtl_tx.c $(CORE)
+connect: src/connect.c src/rtl_hal.c src/rtl_rx.c src/rtl_tx.c src/rtl_ccmp.c $(CORE)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 ccmptest: src/ccmptest.c src/rtl_ccmp.c

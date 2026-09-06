@@ -22,6 +22,7 @@
 #include "rtl_rf.h"
 #include "rtl_rx.h"
 #include "rtl_tx.h"
+#include "rtl_ccmp.h"
 
 static uint8_t g_sa[6] = { 0x00, 0xc0, 0xca, 0xbc, 0x4e, 0xfa };
 static uint8_t g_bssid[6];
@@ -32,7 +33,12 @@ typedef struct {
     uint8_t anonce[32];
     uint8_t replay_m1[8];
     uint8_t replay_m3[8];
+    uint8_t m3_kd[256]; int m3_kdlen;   /* verschluesselte Key Data aus msg3 */
 } hs_t;
+
+/* CCMP-Live-Entschluesselungstest (Broadcast mit GTK). */
+static uint8_t g_gtk[16];
+static int g_dec_ok;
 
 static int parse_mac(const char *s, uint8_t *m) {
     return sscanf(s, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
@@ -95,7 +101,28 @@ static void cb(const uint8_t *f, uint32_t len, void *v) {
         s->got_m1 = 1;
     } else if (ack && mic && secure) {         /* msg3 */
         memcpy(s->replay_m3, e + 9, 8);
+        int kdl = (e[97] << 8) | e[98];
+        if (kdl > 0 && kdl <= 256 && (e + 99 + kdl) <= (f + len)) {
+            memcpy(s->m3_kd, e + 99, kdl); s->m3_kdlen = kdl;
+        }
         s->got_m3 = 1;
+    }
+}
+
+/* RX-Callback fuer den CCMP-Test: Broadcast-Data-Frame mit GTK entschluesseln. */
+static void dec_cb(const uint8_t *f, uint32_t len, void *v) {
+    (void)v;
+    if (g_dec_ok || len < 24) return;
+    uint8_t fc0 = f[0], fc1 = f[1];
+    if ((fc0 & 0x0C) != 0x08) return;          /* Data */
+    if (!(fc1 & 0x40)) return;                  /* Protected */
+    if (!(f[4] & 0x01)) return;                 /* addr1 Multicast/Broadcast */
+    uint8_t out[2048]; int ol = 0;
+    if (rtl_ccmp_decrypt_frame(g_gtk, f, (int)len, out, &ol) == 0 && ol >= 8 &&
+        out[0]==0xAA && out[1]==0xAA && out[2]==0x03) {
+        g_dec_ok = 1;
+        printf("  CCMP-Entschluesselung OK: Broadcast-Frame -> LLC/SNAP EtherType %02x%02x, %d Byte Payload\n",
+               out[6], out[7], ol - 8);
     }
 }
 
@@ -222,8 +249,31 @@ int main(int argc, char **argv) {
 
     /* msg4: bestaetigen */
     send_eapol(h, 0x030A, s.replay_m3, NULL, NULL, 0, kck);
-    printf("msg4 gesendet.\n\n==> IE3 OK: WPA2-4-Way-Handshake abgeschlossen. Verschluesselter Link steht.\n");
-    printf("    Naechste Schritte: CCMP-Keys setzen (IE4) + utun-Bridge (IE5).\n");
+    printf("msg4 gesendet.\n==> IE3 OK: WPA2-4-Way-Handshake abgeschlossen.\n\n");
+
+    /* --- IE4/IE5-Vorstufe: GTK auspacken + CCMP live entschluesseln --- */
+    const uint8_t *kek = ptk + 16;
+    if (s.m3_kdlen >= 24 && (s.m3_kdlen % 8) == 0) {
+        uint8_t kd[256];
+        if (rtl_aes_unwrap(kek, s.m3_kd, s.m3_kdlen, kd) == 0) {
+            int plen = s.m3_kdlen - 8, i = 0, have = 0;
+            while (i + 2 <= plen) {
+                int id = kd[i], l = kd[i+1];
+                if (id != 0xDD || i + 2 + l > plen) break;
+                if (l >= 6 && kd[i+2]==0x00 && kd[i+3]==0x0f && kd[i+4]==0xac && kd[i+5]==0x01) {
+                    memcpy(g_gtk, kd + i + 8, 16); have = 1;   /* GTK KDE: OUI+type+keyid+rsvd, dann GTK */
+                }
+                i += 2 + l;
+            }
+            if (have) {
+                printf("GTK aus msg3 ausgepackt. Teste CCMP-Entschluesselung live ...\n");
+                for (int t = 0; t < 30 && !g_dec_ok; t++) rtl_rx_poll(h, 200, dec_cb, NULL);
+                if (g_dec_ok) printf("\n==> IE4 live bestaetigt: CCMP-Rahmung korrekt, echtes Frame entschluesselt.\n");
+                else printf("  (kein passendes Broadcast-Frame entschluesselt — evtl. wenig Multicast-Verkehr)\n");
+            } else printf("  Keine GTK-KDE in msg3 gefunden.\n");
+        } else printf("  GTK-Unwrap fehlgeschlagen (KEK/Key-Data).\n");
+    }
+    printf("\nNaechster Schritt IE5: utun-Bridge + DHCP (Daemon, braucht sudo).\n");
 
 done:
     if (claimed) libusb_release_interface(h, 0);
