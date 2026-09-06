@@ -139,6 +139,15 @@ int rtl_wpa_connect(libusb_device_handle *h, int channel,
                 i+=2+l;}
         }
     }
-    if(verbose)printf("[wpa] verbunden, TK gesetzt, GTK %s.\n", k->have_gtk?"ok":"fehlt");
+    /* Station mode: set network type = infrastructure (MSR) and the BSSID, so the
+     * hardware auto-ACKs unicast frames addressed to us. Without this the chip
+     * stays in NOLINK/monitor and never ACKs, so the AP drops our unicast replies
+     * (e.g. ping/ICMP echo replies) -> the data path only worked for broadcast. */
+    { uint8_t msr = rtl_read8(h, 0x0102, NULL);          /* MSR = REG_CR+2 */
+      rtl_write8(h, 0x0102, (uint8_t)((msr & 0xFC) | 0x02)); } /* port0 = _HW_STATE_STATION_ */
+    rtl_reg_write(h, 0x0618, w_bssid, 6);                /* REG_BSSID */
+
+    if(verbose)printf("[wpa] connected, TK set, GTK %s, station mode (auto-ACK on).\n",
+                      k->have_gtk?"ok":"missing");
     return 0;
 }
