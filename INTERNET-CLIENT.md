@@ -37,9 +37,10 @@ Assoziierung, WPA2-Supplicant (EAPOL-4-Way), Schlüssel setzen, 802.11↔IP übe
 - [x] **IE1 — Scan:** Netze finden (SSID/BSSID/Kanal/Verschlüsselung). → `scan`
 - [x] **IE2 — Assoziierung:** Open-Auth + Assoc mit RSN-IE, Auto-ACK via
       REG_MACID. Verifiziert: mit FRITZ!Box assoziiert, Status 0, AID=7. → `associate`
-- [~] **IE3 — WPA2-Supplicant:** EAPOL-4-Way-Handshake gebaut (`connect`).
-      Krypto verifiziert (PBKDF2 = IEEE-802.11i-Testvektor, PASS). Passwort via
-      getpass (bleibt lokal). End-zu-End-Test mit echtem PSK durch den Nutzer offen.
+- [x] **IE3 — WPA2-Supplicant:** EAPOL-4-Way-Handshake (`connect`). Krypto gegen
+      IEEE-802.11i-Testvektor verifiziert. **End-zu-End auf echter Hardware
+      bestaetigt:** msg3 von der FRITZ!Box empfangen (nur bei korrektem PSK) →
+      PMK/PTK/MIC korrekt, verschluesselter Link ausgehandelt. Passwort via getpass.
 - [ ] **IE4 — Schlüssel/Krypto:** CCMP-Keys in den Chip (HW) oder Software-CCMP.
 - [ ] **IE5 — utun-Bridge:** utun anlegen, IP ↔ 802.11-Data, ARP/DHCP-Client.
 - [ ] **IE6 — Daemon + brew:** launchd-Daemon, `brew`-Formel, Auto-Reconnect.
