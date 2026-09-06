@@ -44,6 +44,7 @@ static int g_dhcp_mode = 0;
 static uint8_t g_dtype = 0, g_yi[4], g_dmask[4], g_dgw[4], g_dsrv[4];
 /* Diagnose-Zaehler. */
 static long c_utun_out = 0, c_tx = 0, c_rx_ip = 0, c_rx_other = 0, c_rx_dec = 0;
+static long c_icmp_out = 0, c_icmp_in = 0;
 
 /* ---- utun ---- */
 static int utun_open(char *ifname, size_t ilen) {
@@ -190,6 +191,8 @@ static void on_frame(const uint8_t *f, uint32_t len, void *v) {
             memcpy(buf, &af, 4); memcpy(buf+4, pl, pll);
             (void)!write(g_utun_fd, buf, pll+4);
             c_rx_ip++;
+            if (pll >= 20 && pl[9]==1) { int ihl=(pl[0]&0x0f)*4;
+                if (pll>ihl && pl[ihl]==0) c_icmp_in++; }   /* ICMP Echo Reply */
         }
     } else {
         c_rx_other++;
@@ -280,14 +283,16 @@ int main(int argc, char **argv) {
             int n = (int)read(g_utun_fd, ub, sizeof(ub));
             if (n <= 4) break;
             const uint8_t *ip = ub + 4;             /* AF-Header ueberspringen */
+            if ((n-4) >= 20 && ip[9]==1) { int ihl=(ip[0]&0x0f)*4;
+                if ((n-4)>ihl && ip[ihl]==8) c_icmp_out++; } /* ICMP Echo Request */
             const uint8_t *dst = g_have_gw_mac ? g_gw_mac : bc;
             if (send_l3(h, dst, ETH_IP, ip, n - 4) == 0) c_tx++;
             c_utun_out++;
         }
         if (time(NULL) != last) {
             last = time(NULL);
-            fprintf(stderr, "[stat] utun_out=%ld tx=%ld  rx_ip=%ld rx_other=%ld\n",
-                    c_utun_out, c_tx, c_rx_ip, c_rx_other);
+            fprintf(stderr, "[stat] utun_out=%ld tx=%ld  rx_ip=%ld rx_other=%ld  icmp_out=%ld icmp_in=%ld\n",
+                    c_utun_out, c_tx, c_rx_ip, c_rx_other, c_icmp_out, c_icmp_in);
         }
     }
 
