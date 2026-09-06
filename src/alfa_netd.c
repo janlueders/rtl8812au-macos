@@ -48,6 +48,7 @@ static long c_utun_out = 0, c_tx = 0, c_rx_ip = 0, c_rx_other = 0, c_rx_dec = 0;
 static long c_icmp_out = 0, c_icmp_in = 0, c_uni_seen = 0, c_uni_decfail = 0;
 static long c_dhcp_seen = 0;   /* UDP frames to dst port 68 (any DHCP reply) */
 static long c_bcast_seen = 0, c_bcast_decfail = 0; /* broadcast frames from the AP: seen / GTK-decrypt failed */
+static long c_arp_reply_any = 0;   /* diagnostic: ANY ARP reply, regardless of the queried IP */
 /* Routing-Sicherung, damit wir das Netz nie kaputt zuruecklassen. */
 static char g_orig_gw[64] = "";
 static int  g_changed_default = 0;
@@ -245,6 +246,7 @@ static void on_frame(const uint8_t *f, uint32_t len, void *v) {
     if (et == ETH_ARP && pll >= 28) {
         /* ARP-Reply auf unsere Anfrage? (op=2, sender-ip==gw) */
         if (out[8+6]==0 && out[8+7]==2) {
+            c_arp_reply_any++;   /* diagnostic: any ARP reply at all reached us */
             if (!memcmp(pl+14, g_gw_ip, 4)) { memcpy(g_gw_mac, pl+8, 6); g_have_gw_mac=1; }
         }
     } else if (et == ETH_IP && pll >= 28) {
@@ -330,6 +332,23 @@ int main(int argc, char **argv) {
     /* Settle: let the AP finish plumbing us as a station, drain early RX. */
     printf("Settle 800ms nach Verbindung ...\n");
     for (int r=0;r<6;r++) rtl_rx_poll(h,150,on_frame,h);
+
+    /* Isolation test BEFORE DHCP: does ANY encrypted broadcast DATA frame we
+     * send get a reply from anything on the network? ARP is nearly universal
+     * (any live host answers "who has <ip>") and much simpler than DHCP, so
+     * this tells us whether the problem is DHCP/server-specific or affects
+     * all our encrypted broadcast TX. Probe a few likely-live IPs including
+     * the known gateway. */
+    { uint8_t probe_ip[4] = {192,168,178,1};
+      printf("ARP-Isolationstest: sende 5x ARP-who-has 192.168.178.1 (encrypted broadcast) ...\n");
+      for (int t=0;t<5;t++){ arp_request(h,probe_ip); rtl_rx_poll(h,300,on_frame,h); }
+      printf("  ARP-Antworten insgesamt empfangen: %ld\n", c_arp_reply_any);
+      if (c_arp_reply_any==0)
+        printf("  -> KEINE ARP-Antwort. Encrypted-Broadcast-TX kommt vermutlich generell nicht an\n"
+               "     (DHCP-spezifisch ist es dann NICHT). Weiter zur DHCP-Diagnose trotzdem:\n");
+      else
+        printf("  -> ARP-Antwort(en) da: encrypted broadcast TX funktioniert. Problem ist DHCP/Server-spezifisch.\n");
+    }
 
     /* DHCP */
     printf("DHCP ...\n");
