@@ -3,6 +3,7 @@ usbprobe
 chipinfo
 initchip
 efuseinfo
+fwload
 *.o
 
 # Linux-Treiber nur als Portierungs-Referenz, nicht ins Repo

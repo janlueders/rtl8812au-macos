@@ -55,8 +55,11 @@ macOS bringt keinen RTL8812AU-Treiber mit → das Gerät ist frei und greifbar.
       (CARDEMU_TO_ACT) läuft, State-Machine aktiv. → `initchip`
 - [x] **M2b — efuse-Read:** physische efuse dekodiert, echte Hersteller-MAC
       gelesen (`00:c0:ca:...`, OUI = ALFA Network). → `efuseinfo`
-      Offen: Firmware-Download (`hal/rtl8812a/hal8812a_fw.c`).
-- [ ] **M3 — Kanal/RF:** Kanal + Band + Bandbreite über Register setzen.
+- [x] **M2c — Firmware-Download:** 27 KB NIC-Firmware (v52.14) geladen,
+      Checksum OK, WINTINI_RDY gesetzt — Firmware laeuft. → `fwload`
+- [ ] **M3 — PHY/BB/RF-Init + Kanal:** MAC-/BB-/RF-Register-Tabellen +
+      RF-Kalibrierung (IQK) portieren, Kanal/Band/Bandbreite setzen.
+      **Groesster Brocken** (viele Parameter-Tabellen, HW-Kalibrierung).
 - [ ] **M4 — RX/Monitor:** Bulk-IN, RX-Deskriptor → 802.11 + radiotap.
 - [ ] **M5 — TX/Injection:** rohe Frames + TX-Deskriptor über Bulk-OUT.
 - [ ] **M6 — Wireshark extcap:** als Capture-Quelle einbinden.
@@ -71,6 +74,8 @@ macOS bringt keinen RTL8812AU-Treiber mit → das Gerät ist frei und greifbar.
 - MAC (0x0610) nach Power-On = `00:00:...` (Registerfile), echte MAC via efuse.
 - **efuse-Read erfolgreich:** MAC `00:c0:ca:bc:4e:fa` — OUI `00:c0:ca` = ALFA
   Network Inc., bestätigt die korrekte Map-Dekodierung.
+- **Firmware-Download erfolgreich:** v52.14, 26998 Byte, Checksum OK,
+  WINTINI_RDY gesetzt → Firmware bootet nativ von macOS aus.
 - [ ] **M3 — Kanal/RF:** Kanal + Band + Bandbreite setzen (Register aus HAL).
 - [ ] **M4 — RX/Monitor:** Bulk-IN empfangen, RX-Deskriptor parsen, rohe
       802.11-Frames + radiotap-Header ausgeben.

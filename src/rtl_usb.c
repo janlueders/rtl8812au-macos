@@ -66,6 +66,16 @@ int rtl_reg_write(libusb_device_handle *h, uint16_t addr, const uint8_t *buf, ui
     return (r == len) ? 0 : (r < 0 ? r : LIBUSB_ERROR_IO);
 }
 
+int rtl_reg_write_block(libusb_device_handle *h, uint16_t addr, const uint8_t *buf, uint16_t len) {
+    uint8_t tmp[256];
+    if (len > sizeof(tmp)) return LIBUSB_ERROR_INVALID_PARAM;
+    memcpy(tmp, buf, len);
+    int r = libusb_control_transfer(
+        h, RTL_VENDOR_WRITE, RTL_VENDOR_REQ, addr, RTL_VENDOR_IDX,
+        tmp, len, RTL_CTRL_TIMEOUT);
+    return (r == len) ? 0 : (r < 0 ? r : LIBUSB_ERROR_IO);
+}
+
 uint8_t rtl_read8(libusb_device_handle *h, uint16_t addr, int *rc) {
     uint8_t v = 0; int r = rtl_reg_read(h, addr, &v, 1);
     if (rc) *rc = r; return v;

@@ -29,6 +29,19 @@
 #define EFUSE_PHYS_MAX    1024    /* physische Obergrenze fuer den Scan */
 #define EFUSE_MAC_OFFSET  0xD7    /* EEPROM_MAC_ADDR_8812AU: MAC in der Map */
 
+/* Firmware-Download (aus include/hal_com_reg.h, rtl8812a_hal.h). */
+#define REG_SYS_FUNC_EN   0x0002
+#define REG_RSV_CTRL      0x001C
+#define REG_MCUFWDL       0x0080
+#define FW_START_ADDRESS  0x1000
+#define MAX_DLFW_PAGE_SIZE 4096
+#define FWDL_MAX_BLOCK    196     /* MAX_REG_BOLCK_SIZE (USB) */
+#define MCUFWDL_EN        0x01    /* BIT0 */
+#define MCUFWDL_RDY       0x02    /* BIT1 */
+#define FWDL_CHKSUM_RPT   0x04    /* BIT2 */
+#define WINTINI_RDY       0x40    /* BIT6 */
+#define RAM_DL_SEL        0x80    /* BIT7 */
+
 /* SYS_CFG-Bits. */
 #define SYS_CFG_RTL_ID          (1u << 23) /* 1=Test-Chip, 0=MP */
 #define SYS_CFG_VENDOR_ID       (1u << 19) /* 1=UMC, 0=TSMC (8812) */
@@ -45,6 +58,8 @@ int rtl_open_first(libusb_context *ctx, libusb_device_handle **out_handle,
 /* Register-Zugriff. len ist 1, 2 oder 4. Rueckgabe: 0 ok, sonst libusb-Fehler. */
 int rtl_reg_read(libusb_device_handle *h, uint16_t addr, uint8_t *buf, uint16_t len);
 int rtl_reg_write(libusb_device_handle *h, uint16_t addr, const uint8_t *buf, uint16_t len);
+/* Block-Write (bis 256 Byte) fuer Firmware-Download via Vendor-Request. */
+int rtl_reg_write_block(libusb_device_handle *h, uint16_t addr, const uint8_t *buf, uint16_t len);
 
 /* Bequeme Breiten-Helfer (little-endian). Fehler -> Rueckgabe 0 bzw. via rc-Ptr. */
 uint8_t  rtl_read8 (libusb_device_handle *h, uint16_t addr, int *rc);
@@ -64,5 +79,10 @@ int rtl_efuse_read_map(libusb_device_handle *h, uint8_t *map, int maplen);
  * Rueckgabe: 0 ok, <0 bei USB-Fehler, >0 = Nummer des fehlgeschlagenen
  * POLLING-Schritts (Chip-State-Machine nicht erreicht). */
 int rtl_power_on(libusb_device_handle *h, int verbose);
+
+/* Firmware-Download (NIC-Firmware, eingebettet). verbose!=0 druckt Fortschritt.
+ * Rueckgabe: 0 ok, <0 USB-Fehler, 1 = Checksum-Timeout, 2 = WINTINI-Timeout.
+ * Setzt eine erfolgreiche Power-On-Sequenz voraus. */
+int rtl_fw_download(libusb_device_handle *h, int verbose);
 
 #endif /* RTL_USB_H */
