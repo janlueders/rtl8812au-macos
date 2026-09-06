@@ -323,7 +323,12 @@ int main(int argc, char **argv) {
 
     /* DHCP */
     printf("DHCP ...\n");
-    uint8_t xid[4]={0xde,0xad,0xbe,0xef};
+    /* Random per-run xid: a hardcoded xid meant the server saw the exact same
+     * (MAC, xid) transaction on every single run, which real DHCP servers can
+     * treat as a stale/duplicate transaction and silently ignore -- matching
+     * the observed symptom (broadcast RX/decrypt is 100% healthy, but the
+     * server never answers our DISCOVER at all). */
+    uint8_t xid[4]; for (int i=0;i<4;i++) xid[i]=(uint8_t)arc4random();
     uint8_t pkt[700]; int il;
     uint8_t bc[6]; memset(bc,0xff,6);
     g_dhcp_mode = 1;
