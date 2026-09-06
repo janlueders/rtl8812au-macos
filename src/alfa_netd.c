@@ -256,10 +256,23 @@ int main(int argc, char **argv) {
      * the same AP/channel starve our unicast RX (dhcp_frames=0, uni_seen=0).
      * So turn Apple Wi-Fi off now; restore_routing() turns it back on at exit. */
     if (want_default && g_wifi_dev[0]) {
-        char cmd[128];
+        char cmd[128], out[64];
         snprintf(cmd,sizeof(cmd),"networksetup -setairportpower %s off 2>/dev/null", g_wifi_dev);
         printf("Schalte Apple-WLAN (%s) aus, damit der Adapter alleiniges Radio ist ...\n", g_wifi_dev);
-        system(cmd); g_wifi_off = 1; sleep(2);
+        system(cmd); g_wifi_off = 1;
+        /* Wait until the interface actually reports down, don't just sleep a
+         * fixed guess -- the radio can take a variable few seconds to fully
+         * vacate the channel, and if it hasn't, our TX/RX gets intermittently
+         * corrupted (exactly the flaky dhcp_frames=0/uni_seen=0 symptom). */
+        snprintf(cmd,sizeof(cmd),"ifconfig %s 2>/dev/null | awk '/status/{print $2}'", g_wifi_dev);
+        for (int i=0;i<20;i++) {
+            FILE *pp = popen(cmd,"r"); out[0]=0;
+            if (pp) { if (fgets(out,sizeof(out),pp)) out[strcspn(out,"\n")]=0; pclose(pp); }
+            if (strcmp(out,"inactive")==0 || strcmp(out,"")==0) break;
+            usleep(300000);
+        }
+        sleep(2);   /* extra margin: fully vacate the channel/RF frontend */
+        printf("Apple-WLAN Status: %s\n", out[0]?out:"inactive");
     }
     { FILE *pp = popen("route -n get default 2>/dev/null | awk '/gateway/{print $2}'", "r");
       if (pp) { if (fgets(g_orig_gw, sizeof(g_orig_gw), pp)) g_orig_gw[strcspn(g_orig_gw,"\n")]=0; pclose(pp); } }
