@@ -1,8 +1,23 @@
 #include "rtl_rx.h"
+#include "rtl_usb.h"     /* rtl_led_on/off fuer Aktivitaets-Blinken */
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
 #include <stdint.h>
+
+/* LED bei Funkverkehr blinken lassen, gedrosselt auf ~120ms Umschaltung. */
+static void led_activity(libusb_device_handle *h, int active) {
+    static struct timespec last; static int inited = 0, state = 0;
+    if (!active) return;
+    struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+    if (!inited) { last = now; inited = 1; }
+    long ms = (now.tv_sec - last.tv_sec) * 1000 + (now.tv_nsec - last.tv_nsec) / 1000000;
+    if (ms >= 120) {
+        state = !state;
+        if (state) rtl_led_on(h); else rtl_led_off(h);
+        last = now;
+    }
+}
 
 #define RX_BUF_SIZE  32768
 #define RND8(x)      (((x) + 7) & ~7u)
@@ -73,6 +88,7 @@ long rtl_rx_stream(libusb_device_handle *h, FILE *f) {
         int rc = libusb_bulk_transfer(h, RTL_RX_EP, buf, RX_BUF_SIZE, &got, 300);
         if (rc == 0 && got > RTL_RXDESC_SIZE) {
             frames += parse_bulk(buf, got, f);
+            led_activity(h, 1);
             fflush(f);
             if (ferror(f)) break;   /* FIFO geschlossen -> Ende */
         } else if (rc != 0 && rc != LIBUSB_ERROR_TIMEOUT) {
@@ -117,6 +133,7 @@ long rtl_rx_capture(libusb_device_handle *h, FILE *f, int seconds, int verbose) 
         int rc = libusb_bulk_transfer(h, RTL_RX_EP, buf, RX_BUF_SIZE, &got, 300);
         if (rc == 0 && got > 0) {
             xfers++; total_bytes += got;
+            led_activity(h, 1);
             if (!have_first) { first_d0 = le32(buf); have_first = 1; }
             if (got > RTL_RXDESC_SIZE) {
                 long n = parse_bulk(buf, got, f);

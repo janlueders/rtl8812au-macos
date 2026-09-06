@@ -35,6 +35,8 @@ int rtl_hal_full_init(libusb_device_handle *h, int channel, int with_cal, int ve
     }
     STEP(rtl_mac_set_monitor(h, verbose),     "Monitor-RCR");
 
+    rtl_led_on(h);   /* LED an, sobald der Chip initialisiert ist (LEDCFG0) */
+
     /* Software-Beweise statt LED: Registerzustand zurueckelesen. */
     if (verbose) {
         int rc = 0;
