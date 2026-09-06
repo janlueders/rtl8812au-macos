@@ -15,6 +15,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
@@ -41,6 +42,8 @@ static int g_have_gw_mac = 0;
 /* DHCP-Erfassung waehrend des Setups. */
 static int g_dhcp_mode = 0;
 static uint8_t g_dtype = 0, g_yi[4], g_dmask[4], g_dgw[4], g_dsrv[4];
+/* Diagnose-Zaehler. */
+static long c_utun_out = 0, c_tx = 0, c_rx_ip = 0, c_rx_other = 0;
 
 /* ---- utun ---- */
 static int utun_open(char *ifname, size_t ilen) {
@@ -183,7 +186,10 @@ static void on_frame(const uint8_t *f, uint32_t len, void *v) {
             uint8_t buf[2100]; uint32_t af = htonl(AF_INET);
             memcpy(buf, &af, 4); memcpy(buf+4, pl, pll);
             (void)!write(g_utun_fd, buf, pll+4);
+            c_rx_ip++;
         }
+    } else {
+        c_rx_other++;
     }
 }
 
@@ -258,14 +264,22 @@ int main(int argc, char **argv) {
     printf("\nBridge laeuft. Teste z.B.:  ping -c3 %u.%u.%u.%u\n",
            g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3]);
     printf("(Erste Fassung — Routing/DHCP-Feinschliff nach deinem Testlauf.)\n");
+    uint8_t ub[2100];
+    time_t last = time(NULL);
     for (;;) {
-        rtl_rx_poll(h, 50, on_frame, h);
-        uint8_t ub[2100];
-        int n = (int)read(g_utun_fd, ub, sizeof(ub));
-        if (n > 4) {
-            const uint8_t *ip = ub + 4;            /* AF-Header ueberspringen */
+        rtl_rx_poll(h, 20, on_frame, NULL);
+        for (;;) {                                  /* utun leerlesen, nicht nur 1 Paket */
+            int n = (int)read(g_utun_fd, ub, sizeof(ub));
+            if (n <= 4) break;
+            const uint8_t *ip = ub + 4;             /* AF-Header ueberspringen */
             const uint8_t *dst = g_have_gw_mac ? g_gw_mac : bc;
-            send_l3(h, dst, ETH_IP, ip, n - 4);
+            if (send_l3(h, dst, ETH_IP, ip, n - 4) == 0) c_tx++;
+            c_utun_out++;
+        }
+        if (time(NULL) != last) {
+            last = time(NULL);
+            fprintf(stderr, "[stat] utun_out=%ld tx=%ld  rx_ip=%ld rx_other=%ld\n",
+                    c_utun_out, c_tx, c_rx_ip, c_rx_other);
         }
     }
 
