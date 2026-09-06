@@ -42,6 +42,9 @@
 #define WINTINI_RDY       0x40    /* BIT6 */
 #define RAM_DL_SEL        0x80    /* BIT7 */
 
+/* LED (aus include/hal_com_reg.h, hal/rtl8812a/usb/rtl8812au_led.c). */
+#define REG_LEDCFG2       0x004E
+
 /* SYS_CFG-Bits. */
 #define SYS_CFG_RTL_ID          (1u << 23) /* 1=Test-Chip, 0=MP */
 #define SYS_CFG_VENDOR_ID       (1u << 19) /* 1=UMC, 0=TSMC (8812) */
@@ -84,5 +87,9 @@ int rtl_power_on(libusb_device_handle *h, int verbose);
  * Rueckgabe: 0 ok, <0 USB-Fehler, 1 = Checksum-Timeout, 2 = WINTINI-Timeout.
  * Setzt eine erfolgreiche Power-On-Sequenz voraus. */
 int rtl_fw_download(libusb_device_handle *h, int verbose);
+
+/* Status-LED0 (SW-Control) an/aus. */
+void rtl_led_on(libusb_device_handle *h);
+void rtl_led_off(libusb_device_handle *h);
 
 #endif /* RTL_USB_H */

@@ -15,7 +15,7 @@ endif
 CFLAGS  += -Wall -Wextra -O2 -arch arm64 $(LIBUSB_CFLAGS)
 LDFLAGS += $(LIBUSB_LIBS)
 
-BINS := usbprobe chipinfo initchip efuseinfo fwload
+BINS := usbprobe chipinfo initchip efuseinfo fwload ledtest
 
 all: $(BINS)
 
@@ -33,6 +33,9 @@ efuseinfo: src/efuseinfo.c src/rtl_efuse.c src/rtl_init.c src/rtl_usb.c src/rtl_
 
 fwload: src/fwload.c src/rtl_fw.c src/fw_8812a_nic.c src/rtl_init.c src/rtl_usb.c src/rtl_usb.h
 	$(CC) $(CFLAGS) -o $@ src/fwload.c src/rtl_fw.c src/fw_8812a_nic.c src/rtl_init.c src/rtl_usb.c $(LDFLAGS)
+
+ledtest: src/ledtest.c src/rtl_led.c src/rtl_fw.c src/fw_8812a_nic.c src/rtl_init.c src/rtl_usb.c src/rtl_usb.h
+	$(CC) $(CFLAGS) -o $@ src/ledtest.c src/rtl_led.c src/rtl_fw.c src/fw_8812a_nic.c src/rtl_init.c src/rtl_usb.c $(LDFLAGS)
 
 clean:
 	rm -f $(BINS)
