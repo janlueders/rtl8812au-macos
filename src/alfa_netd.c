@@ -25,6 +25,7 @@
 #include <net/if_utun.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #include "rtl_usb.h"
 #include "rtl_rx.h"
 #include "rtl_tx.h"
@@ -45,6 +46,21 @@ static uint8_t g_dtype = 0, g_yi[4], g_dmask[4], g_dgw[4], g_dsrv[4];
 /* Diagnose-Zaehler. */
 static long c_utun_out = 0, c_tx = 0, c_rx_ip = 0, c_rx_other = 0, c_rx_dec = 0;
 static long c_icmp_out = 0, c_icmp_in = 0;
+/* Routing-Sicherung, damit wir das Netz nie kaputt zuruecklassen. */
+static char g_orig_gw[64] = "";
+static int  g_changed_default = 0;
+static char g_ifn[32] = "";
+static volatile sig_atomic_t g_stop = 0;
+
+static void restore_routing(void) {
+    char cmd[256];
+    if (g_changed_default && g_orig_gw[0]) {
+        snprintf(cmd,sizeof(cmd),"route -n delete default -interface %s 2>/dev/null", g_ifn); system(cmd);
+        snprintf(cmd,sizeof(cmd),"route -n add default %s 2>/dev/null", g_orig_gw); system(cmd);
+        g_changed_default = 0;
+    }
+}
+static void on_signal(int s) { (void)s; g_stop = 1; }
 
 /* ---- utun ---- */
 static int utun_open(char *ifname, size_t ilen) {
@@ -200,13 +216,20 @@ static void on_frame(const uint8_t *f, uint32_t len, void *v) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 4) { printf("Nutzung: sudo %s <kanal> <bssid> <ssid>\n", argv[0]); return 1; }
+    if (argc < 4) { printf("Nutzung: sudo %s <kanal> <bssid> <ssid> [--default]\n", argv[0]); return 1; }
     if (geteuid() != 0) { printf("Braucht root: sudo %s ...\n", argv[0]); return 1; }
     int channel = atoi(argv[1]);
     uint8_t bssid[6];
     if (sscanf(argv[2],"%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",&bssid[0],&bssid[1],&bssid[2],&bssid[3],&bssid[4],&bssid[5])!=6)
         { printf("BSSID ungueltig\n"); return 1; }
     const char *ssid = argv[3];
+    int want_default = (argc > 4 && strcmp(argv[4], "--default") == 0);
+
+    /* Signal-Handler + Original-Default-Gateway sichern (fuer sauberes Restore). */
+    signal(SIGINT, on_signal); signal(SIGTERM, on_signal);
+    { FILE *pp = popen("route -n get default 2>/dev/null | awk '/gateway/{print $2}'", "r");
+      if (pp) { if (fgets(g_orig_gw, sizeof(g_orig_gw), pp)) g_orig_gw[strcspn(g_orig_gw,"\n")]=0; pclose(pp); } }
+
     char *pw = getpass("WLAN-Passwort: "); if (!pw||!*pw) return 1;
 
     libusb_context *ctx=NULL; if (libusb_init(&ctx)) return 1;
@@ -256,15 +279,23 @@ int main(int argc, char **argv) {
            g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3],
            g_mask[0],g_mask[1],g_mask[2],g_mask[3]);
 
-    /* Interface konfigurieren + Default-Route ueber utun. */
+    /* Interface konfigurieren. Default-Route NUR mit --default (sonst bleibt
+     * dein System-Internet unangetastet; teste mit `ping -b utunX ...`). */
+    strncpy(g_ifn, ifn, sizeof(g_ifn)-1);
     char cmd[256];
     snprintf(cmd,sizeof(cmd),"ifconfig %s inet %u.%u.%u.%u %u.%u.%u.%u netmask 255.255.255.255 up",
         ifn, g_our_ip[0],g_our_ip[1],g_our_ip[2],g_our_ip[3], g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3]);
     printf("+ %s\n", cmd); system(cmd);
-    snprintf(cmd,sizeof(cmd),"route -n add -net %u.%u.%u.%u/32 -interface %s",
-        g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3], ifn); system(cmd);
-    snprintf(cmd,sizeof(cmd),"route -n change default -interface %s 2>/dev/null || route -n add default -interface %s", ifn, ifn);
-    printf("+ %s\n", cmd); system(cmd);
+    if (want_default) {
+        snprintf(cmd,sizeof(cmd),"route -n change default -interface %s 2>/dev/null || route -n add default -interface %s", ifn, ifn);
+        printf("+ %s\n", cmd); system(cmd);
+        g_changed_default = 1;
+        printf("  (Default-Route auf %s gebogen; wird bei Beenden auf %s zurueckgesetzt)\n",
+               ifn, g_orig_gw[0]?g_orig_gw:"(keine)");
+    } else {
+        printf("  Default-Route unveraendert. Test ohne Systemstoerung:\n");
+        printf("    sudo ping -b %s %u.%u.%u.%u\n", ifn, g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3]);
+    }
 
     /* Gateway-MAC per ARP aufloesen (fuer die 802.11-addr3 unserer TX). */
     printf("ARP Gateway ...\n");
@@ -277,7 +308,7 @@ int main(int argc, char **argv) {
     printf("(Erste Fassung — Routing/DHCP-Feinschliff nach deinem Testlauf.)\n");
     uint8_t ub[2100];
     time_t last = time(NULL);
-    for (;;) {
+    while (!g_stop) {
         rtl_rx_poll(h, 20, on_frame, NULL);
         for (;;) {                                  /* utun leerlesen, nicht nur 1 Paket */
             int n = (int)read(g_utun_fd, ub, sizeof(ub));
@@ -297,9 +328,11 @@ int main(int argc, char **argv) {
     }
 
 done:
+    restore_routing();                 /* Default-Route zuruecksetzen, Netz nie kaputt lassen */
     if (g_utun_fd>=0) close(g_utun_fd);
     if (claimed) libusb_release_interface(h,0);
     if (h) libusb_close(h);
     libusb_exit(ctx);
+    if (g_stop) printf("\nBeendet, Routing wiederhergestellt.\n");
     return rc;
 }
