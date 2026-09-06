@@ -13,3 +13,5 @@ ledtest
 stagetest
 monitor
 capture.pcap
+cap5g.pcap
+*.pcap

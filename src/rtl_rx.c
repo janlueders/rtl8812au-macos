@@ -69,17 +69,26 @@ long rtl_rx_capture(libusb_device_handle *h, FILE *f, int seconds, int verbose) 
     if (!buf) return -1;
 
     long total_frames = 0;
+    long xfers = 0;            /* nicht-leere Bulk-Transfers */
+    long total_bytes = 0;      /* rohe empfangene Bytes */
+    long timeouts = 0;
+    uint32_t first_d0 = 0; int have_first = 0;
     time_t end = time(NULL) + seconds;
 
     while (time(NULL) < end) {
         int got = 0;
         int rc = libusb_bulk_transfer(h, RTL_RX_EP, buf, RX_BUF_SIZE, &got, 300);
-        if (rc == 0 && got > RTL_RXDESC_SIZE) {
-            long n = parse_bulk(buf, got, f);
-            total_frames += n;
-            if (verbose && n > 0) { printf("\r  Frames: %ld ", total_frames); fflush(stdout); }
+        if (rc == 0 && got > 0) {
+            xfers++; total_bytes += got;
+            if (!have_first) { first_d0 = le32(buf); have_first = 1; }
+            if (got > RTL_RXDESC_SIZE) {
+                long n = parse_bulk(buf, got, f);
+                total_frames += n;
+            }
+            if (verbose) { printf("\r  Transfers:%ld Bytes:%ld Frames:%ld ", xfers, total_bytes, total_frames); fflush(stdout); }
         } else if (rc == LIBUSB_ERROR_TIMEOUT) {
-            continue; /* nichts empfangen, weiter */
+            timeouts++;
+            continue;
         } else if (rc != 0) {
             if (verbose) printf("\n  bulk_transfer rc=%d (%s)\n", rc, libusb_error_name(rc));
             break;
@@ -87,6 +96,12 @@ long rtl_rx_capture(libusb_device_handle *h, FILE *f, int seconds, int verbose) 
     }
     fflush(f);
     free(buf);
-    if (verbose) printf("\n");
+    if (verbose) {
+        printf("\n  DIAGNOSE: Transfers=%ld  Bytes=%ld  Frames=%ld  Timeouts=%ld\n",
+               xfers, total_bytes, total_frames, timeouts);
+        if (have_first) printf("  Erster RX-Deskriptor dword0 = 0x%08x (pkt_len=%u)\n",
+                               first_d0, first_d0 & 0x3FFF);
+        else printf("  KEINE rohen Bytes vom Chip empfangen (0x81 liefert nichts).\n");
+    }
     return total_frames;
 }

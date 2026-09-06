@@ -57,12 +57,15 @@ macOS bringt keinen RTL8812AU-Treiber mit → das Gerät ist frei und greifbar.
       gelesen (`00:c0:ca:...`, OUI = ALFA Network). → `efuseinfo`
 - [x] **M2c — Firmware-Download:** 27 KB NIC-Firmware (v52.14) geladen,
       Checksum OK, WINTINI_RDY gesetzt — Firmware laeuft. → `fwload`
-- [ ] **M3 — PHY/BB/RF-Init + Kanal:** MAC-/BB-/RF-Register-Tabellen +
-      RF-Kalibrierung (IQK) portieren, Kanal/Band/Bandbreite setzen.
-      **Groesster Brocken** (viele Parameter-Tabellen, HW-Kalibrierung).
-- [ ] **M4 — RX/Monitor:** Bulk-IN, RX-Deskriptor → 802.11 + radiotap.
-- [ ] **M5 — TX/Injection:** rohe Frames + TX-Deskriptor über Bulk-OUT.
-- [ ] **M6 — Wireshark extcap:** als Capture-Quelle einbinden.
+- [x] **M3 — MAC/BB/RF-Init + Kanal:** MAC-/BB-/RF-Tabellen (byte-identisch
+      zur Referenz) angewandt, Kanal/Band gesetzt. IQK/LCK portiert (optional).
+- [x] **M4 — RX/Monitor: FUNKTIONIERT.** Bulk-IN-Deaggregation → pcap+radiotap.
+      Verifiziert auf 2.4 GHz (Kanal 6) und 5 GHz (Kanal 100): echte Beacons,
+      Data-, ACK-, Block-ACK-Frames, per tcpdump dekodiert.
+- [ ] **M5 — TX/Injection:** rohe Frames + TX-Deskriptor über Bulk-OUT
+      (braucht Kalibrierung; PA-relevant).
+- [ ] **M6 — Wireshark extcap + brew:** als Live-Capture-Quelle einbinden.
+- [ ] **LED:** GPIO/Pin fuer AWUS036ACH-Variante klaeren (LEDCFG greift noch nicht).
 
 ### Verifizierter Hardware-Stand (auf M2 Pro, macOS 26.6.2)
 

@@ -18,6 +18,7 @@ int main(int argc, char **argv) {
     int channel   = (argc > 1) ? atoi(argv[1]) : 6;
     int seconds   = (argc > 2) ? atoi(argv[2]) : 15;
     const char *out = (argc > 3) ? argv[3] : "capture.pcap";
+    int with_cal  = (argc > 4) ? atoi(argv[4]) : 0;  /* 0 = RX-only (sicher) */
 
     libusb_context *ctx = NULL;
     if (libusb_init(&ctx) != 0) { fprintf(stderr, "libusb_init fehlgeschlagen\n"); return 1; }
@@ -29,7 +30,7 @@ int main(int argc, char **argv) {
     if (rc != 0 || !h) { fprintf(stderr, "Oeffnen fehlgeschlagen: %s\n", libusb_error_name(rc)); libusb_exit(ctx); return 1; }
     printf("Geraet 0bda:%04x, Claim: %s\n\n", pid, claimed ? "OK" : "NICHT");
 
-    rc = rtl_hal_full_init(h, channel, 1);
+    rc = rtl_hal_full_init(h, channel, with_cal, 1);
     if (rc != 0) { printf("\nInbetriebnahme fehlgeschlagen (rc=%d). Abbruch.\n", rc); goto done; }
 
     FILE *f = fopen(out, "wb");

@@ -68,6 +68,15 @@ typedef unsigned int   u32;
 #define MSR_NOLINK          0x00
 #define MACTXEN             BIT(6)
 #define MACRXEN             BIT(7)
+/* REG_CR DMA/Block-Enables (hal_com_reg.h) — noetig, damit RX/TX-DMA laeuft. */
+#define HCI_TXDMA_EN        BIT(0)
+#define HCI_RXDMA_EN        BIT(1)
+#define TXDMA_EN            BIT(2)
+#define RXDMA_EN            BIT(3)
+#define PROTOCOL_EN         BIT(4)
+#define SCHEDULE_EN         BIT(5)
+#define ENSEC               BIT(9)
+#define CALTMR_EN           BIT(10)
 #define _NETTYPE(x)         (((x) & 0x3) << 16)
 #define MASK_NETTYPE        0x30000
 #define NT_LINK_AP          0x2
@@ -859,6 +868,19 @@ int rtl_mac_init(libusb_device_handle *h, int verbose)
 	u8  value8;
 
 	config_out_ep(h, &out_num, &queue_sel, verbose);
+
+	/* 0) _InitPowerOn_8812AU: MAC-DMA/WMAC/SCHEDULE/SEC-Block freischalten.
+	 * OHNE diese CR-DMA-Enables liefert der Chip KEINE RX-Daten ueber USB
+	 * (Symptom: 0 Bytes auf 0x81). Muss vor LLT/MAC-Config passieren. */
+	rtl_write16(h, REG_CR, 0x0000);
+	{
+		uint16_t cr = rtl_read16(h, REG_CR, NULL);
+		cr |= (HCI_TXDMA_EN | HCI_RXDMA_EN | TXDMA_EN | RXDMA_EN
+		       | PROTOCOL_EN | SCHEDULE_EN | ENSEC | CALTMR_EN);
+		rc = rtl_write16(h, REG_CR, cr);
+		if (rc) { if (verbose) printf("[mac] CR-DMA-Enable fehlgeschlagen (%d)\n", rc); return rc; }
+		if (verbose) printf("[mac] CR-DMA-Block freigeschaltet -> CR=0x%04x\n", cr);
+	}
 
 	/* 1) LLT-Tabelle (im HAL vor der MAC-Config, direkt nach Power-On). */
 	rc = init_llt_table(h, txpktbuf_bndy, verbose);
