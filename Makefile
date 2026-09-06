@@ -19,7 +19,7 @@ CORE := src/rtl_usb.c src/rtl_init.c src/rtl_fw.c src/fw_8812a_nic.c \
         src/rtl_efuse.c src/rtl_led.c src/rtl_mac.c src/rtl_bb.c \
         src/rtl_rf.c src/rtl_cal.c
 
-BINS := usbprobe chipinfo initchip efuseinfo fwload ledtest stagetest monitor inject ledscan alfa-extcap scan associate connect ccmptest
+BINS := usbprobe chipinfo initchip efuseinfo fwload ledtest stagetest monitor inject ledscan alfa-extcap scan associate connect ccmptest alfa-netd
 
 all: $(BINS)
 
@@ -71,4 +71,7 @@ connect: src/connect.c src/rtl_hal.c src/rtl_rx.c src/rtl_tx.c src/rtl_ccmp.c $(
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 ccmptest: src/ccmptest.c src/rtl_ccmp.c
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+alfa-netd: src/alfa_netd.c src/rtl_wpa.c src/rtl_hal.c src/rtl_rx.c src/rtl_tx.c src/rtl_ccmp.c $(CORE)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)

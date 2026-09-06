@@ -27,3 +27,4 @@ ccmptest
 # Nur README.md im Repo, andere .md lokal aber nicht committen
 *.md
 !README.md
+alfa-netd
