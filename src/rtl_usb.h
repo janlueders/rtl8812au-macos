@@ -1,10 +1,10 @@
 /*
- * rtl_usb — native USB-Register-Zugriff auf den RTL8812AU (macOS, libusb).
+ * rtl_usb — native USB register access to the RTL8812AU (macOS, libusb).
  *
- * Portiert aus os_dep/linux/usb_ops_linux.c des aircrack-ng/rtl8812au-Treibers:
+ * Ported from os_dep/linux/usb_ops_linux.c of the aircrack-ng/rtl8812au driver:
  *   Register-Read  = bmRequestType 0xC0, bRequest 0x05, wValue=addr, wIndex=0
  *   Register-Write = bmRequestType 0x40, bRequest 0x05, wValue=addr, wIndex=0
- * Daten sind little-endian.
+ * Data is little-endian.
  */
 #ifndef RTL_USB_H
 #define RTL_USB_H
@@ -19,17 +19,17 @@
 #define RTL_VENDOR_IDX    0x00  /* REALTEK_USB_VENQT_CMD_IDX */
 #define RTL_CTRL_TIMEOUT  500   /* ms */
 
-/* Wichtige Register (aus include/hal_com_reg.h). */
-#define REG_SYS_CFG       0x00F0  /* 32-bit: Chip-Version/Vendor/Cut */
-#define REG_MACID         0x0610  /* 6 byte: MAC-Adresse (nach efuse-Autoload) */
-#define REG_EFUSE_CTRL    0x0030  /* 32-bit: efuse-Zugriff (data/addr/flag) */
+/* Important registers (from include/hal_com_reg.h). */
+#define REG_SYS_CFG       0x00F0  /* 32-bit: chip version/vendor/cut */
+#define REG_MACID         0x0610  /* 6 byte: MAC address (after efuse autoload) */
+#define REG_EFUSE_CTRL    0x0030  /* 32-bit: efuse access (data/addr/flag) */
 
-/* efuse (aus include/rtl8812a_hal.h, include/hal_pg.h). */
-#define EFUSE_MAP_LEN     512     /* logische Map-Groesse (Jaguar/8812) */
-#define EFUSE_PHYS_MAX    1024    /* physische Obergrenze fuer den Scan */
-#define EFUSE_MAC_OFFSET  0xD7    /* EEPROM_MAC_ADDR_8812AU: MAC in der Map */
+/* efuse (from include/rtl8812a_hal.h, include/hal_pg.h). */
+#define EFUSE_MAP_LEN     512     /* logical map size (Jaguar/8812) */
+#define EFUSE_PHYS_MAX    1024    /* physical upper bound for the scan */
+#define EFUSE_MAC_OFFSET  0xD7    /* EEPROM_MAC_ADDR_8812AU: MAC in the map */
 
-/* Firmware-Download (aus include/hal_com_reg.h, rtl8812a_hal.h). */
+/* Firmware download (from include/hal_com_reg.h, rtl8812a_hal.h). */
 #define REG_SYS_FUNC_EN   0x0002
 #define REG_RSV_CTRL      0x001C
 #define REG_MCUFWDL       0x0080
@@ -42,23 +42,23 @@
 #define WINTINI_RDY       0x40    /* BIT6 */
 #define RAM_DL_SEL        0x80    /* BIT7 */
 
-/* LED (aus include/hal_com_reg.h, hal/rtl8812a/usb/rtl8812au_led.c). */
+/* LED (from include/hal_com_reg.h, hal/rtl8812a/usb/rtl8812au_led.c). */
 #define REG_LEDCFG2       0x004E
 
-/* SYS_CFG-Bits. */
-#define SYS_CFG_RTL_ID          (1u << 23) /* 1=Test-Chip, 0=MP */
+/* SYS_CFG bits. */
+#define SYS_CFG_RTL_ID          (1u << 23) /* 1=test chip, 0=MP */
 #define SYS_CFG_VENDOR_ID       (1u << 19) /* 1=UMC, 0=TSMC (8812) */
 #define SYS_CFG_CHIP_VER_MASK   0x0000F000u
 #define SYS_CFG_CHIP_VER_SHIFT  12
 
-/* Findet und oeffnet den ersten RTL8812AU (VID 0x0bda). Claimt Interface 0.
- * Gibt 0 zurueck und setzt *out_handle; sonst einen libusb-Fehlercode (<0)
- * oder LIBUSB_ERROR_NO_DEVICE, wenn keiner steckt. *claimed sagt, ob der
- * Interface-Claim geklappt hat (Reads koennen es teils auch ohne versuchen). */
+/* Finds and opens the first RTL8812AU (VID 0x0bda). Claims interface 0.
+ * Returns 0 and sets *out_handle; otherwise a libusb error code (<0)
+ * or LIBUSB_ERROR_NO_DEVICE if none is plugged in. *claimed tells whether the
+ * interface claim succeeded (reads can sometimes be attempted without it). */
 int rtl_open_first(libusb_context *ctx, libusb_device_handle **out_handle,
                    uint16_t *out_pid, int *claimed);
 
-/* Register-Zugriff. len ist 1, 2 oder 4. Rueckgabe: 0 ok, sonst libusb-Fehler. */
+/* Register access. len is 1, 2 or 4. Returns: 0 ok, otherwise libusb error. */
 int rtl_reg_read(libusb_device_handle *h, uint16_t addr, uint8_t *buf, uint16_t len);
 int rtl_reg_write(libusb_device_handle *h, uint16_t addr, const uint8_t *buf, uint16_t len);
 /* Block-Write (bis 256 Byte) fuer Firmware-Download via Vendor-Request. */

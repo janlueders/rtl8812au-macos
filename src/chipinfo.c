@@ -1,9 +1,9 @@
 /*
- * chipinfo — Meilenstein 2 (Teil 1): beweisen, dass der Chip auf Register-
- * Zugriffe antwortet. Liest REG_SYS_CFG (Chip-Version) und die MAC-Adresse.
+ * chipinfo — Milestone 2 (part 1): prove that the chip responds to register
+ * accesses. Reads REG_SYS_CFG (chip version) and the MAC address.
  *
- * Das ist der native macOS-Gegenwert zum Linux-"read_chip_version_8812a":
- * antwortet der Chip hier plausibel, steht die USB-Register-Schicht.
+ * This is the native macOS equivalent of the Linux "read_chip_version_8812a":
+ * if the chip answers plausibly here, the USB register layer is working.
  */
 #include <stdio.h>
 #include "rtl_usb.h"
@@ -27,7 +27,7 @@ int main(void) {
     printf("Geraet geoeffnet: 0bda:%04x   Interface-Claim: %s\n",
            pid, claimed ? "OK" : "NICHT geclaimt (Reads werden trotzdem versucht)");
 
-    /* --- Chip-Version aus SYS_CFG --- */
+    /* --- Chip version from SYS_CFG --- */
     int r = 0;
     uint32_t sys = rtl_read32(h, REG_SYS_CFG, &r);
     if (r != 0) {
@@ -44,7 +44,7 @@ int main(void) {
             printf("  ! Wert unplausibel — vermutlich noch kein echter Register-Zugriff.\n");
     }
 
-    /* --- MAC-Adresse --- */
+    /* --- MAC address --- */
     uint8_t mac[6] = {0};
     r = rtl_reg_read(h, REG_MACID, mac, 6);
     if (r == 0) {

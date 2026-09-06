@@ -1,38 +1,39 @@
 /*
- * rtl_cal — RF-Kalibrierung (IQK + LCK) fuer den RTL8812AU (macOS, libusb).
+ * rtl_cal — RF calibration (IQK + LCK) for the RTL8812AU (macOS, libusb).
  *
  * INTEGRATION:
- *   Dieses Modul fuehrt die RF-Kalibrierung des RTL8812AU (Jaguar) im
- *   Userspace ueber libusb aus. Reihenfolge im Init:
+ *   This module performs the RF calibration of the RTL8812AU (Jaguar) in
+ *   userspace via libusb. Order during init:
  *       power_on -> fw_download -> MAC-Init -> BB-Init -> RF-Init
- *       -> rtl_iqk(h, verbose)      (IQ-Kalibrierung)     <== HIER
- *       -> rtl_lck(h, verbose)      (LC-Kalibrierung)     <== HIER
+ *       -> rtl_iqk(h, verbose)      (IQ calibration)      <== HERE
+ *       -> rtl_lck(h, verbose)      (LC calibration)      <== HERE
  *       -> set_channel(...)
- *   Also NACH RF-Init und VOR dem ersten set_channel. Das aktuell in RF-Reg
- *   0x18 stehende Band bestimmt einige Registerwerte; das RF-Init laesst den
- *   Chip typischerweise auf einem 2.4-GHz-Kanal, was fuer die Init-IQK passt.
+ *   That is, AFTER RF-Init and BEFORE the first set_channel. The band
+ *   currently held in RF register 0x18 determines some register values; the
+ *   RF-Init typically leaves the chip on a 2.4-GHz channel, which suits the
+ *   init IQK.
  *
- * Portiert (faithful) aus dem GPLv2 Linux-Treiber aircrack-ng/rtl8812au:
- *   hal/phydm/halrf/rtl8812a/halrf_8812a_ce.c  (die tatsaechlich unter Linux
- *   kompilierte CE-Variante; im Makefile wird halrf_8812a_ce.o gewaehlt).
+ * Ported (faithful) from the GPLv2 Linux driver aircrack-ng/rtl8812au:
+ *   hal/phydm/halrf/rtl8812a/halrf_8812a_ce.c  (the CE variant actually
+ *   compiled under Linux; the Makefile selects halrf_8812a_ce.o).
  *
- * Abbildung der Original-Helfer:
+ * Mapping of the original helpers:
  *   odm_read_4byte / odm_write_4byte  -> rtl_read32 / rtl_write32
  *   odm_write_1byte                   -> rtl_write8
- *   odm_get_bb_reg / odm_set_bb_reg   -> bb_get / bb_set (lokal, maskiert)
- *   odm_get_rf_reg / odm_set_rf_reg   -> rf_get / rf_set (lokal, maskiert,
- *                                        auf rtl_rf_read / rtl_rf_write)
+ *   odm_get_bb_reg / odm_set_bb_reg   -> bb_get / bb_set (local, masked)
+ *   odm_get_rf_reg / odm_set_rf_reg   -> rf_get / rf_set (local, masked,
+ *                                        on top of rtl_rf_read / rtl_rf_write)
  *   ODM_delay_ms(n)                   -> usleep(n*1000)
  *
- * Struktur-Felder des Originals (dm->...) werden hier durch ermittelte /
- * konfigurierbare Werte ersetzt:
- *   support_interface  -> immer USB (nicht PCIE)
- *   band_type          -> aus RF-Reg 0x18 (Kanal <=14 => 2.4G, sonst 5G)
- *   band_width         -> nur fuer VDF relevant; VDF ist im Original hart aus
- *   rfe_type           -> rtl_cal_rfe_type   (Default 0)
- *   ext_pa (2G)        -> rtl_cal_ext_pa_2g  (Default 0)
- *   ext_pa_5g          -> rtl_cal_ext_pa_5g  (Default 0)
- *   rf->dpk_done       -> 0 (DP-Kalibrierung wird hier nicht gefahren)
+ * Struct fields of the original (dm->...) are replaced here by detected /
+ * configurable values:
+ *   support_interface  -> always USB (not PCIE)
+ *   band_type          -> from RF-Reg 0x18 (channel <=14 => 2.4G, else 5G)
+ *   band_width         -> only relevant for VDF; VDF is hard off in the original
+ *   rfe_type           -> rtl_cal_rfe_type   (default 0)
+ *   ext_pa (2G)        -> rtl_cal_ext_pa_2g  (default 0)
+ *   ext_pa_5g          -> rtl_cal_ext_pa_5g  (default 0)
+ *   rf->dpk_done       -> 0 (DP calibration is not run here)
  */
 
 #include <stdint.h>
@@ -41,19 +42,19 @@
 
 #include "rtl_usb.h"
 
-/* RF-Registerzugriff aus dem separaten rtl_rf-Modul (path 0=A, 1=B). */
+/* RF register access from the separate rtl_rf module (path 0=A, 1=B). */
 extern uint32_t rtl_rf_read (libusb_device_handle *h, int path, uint16_t reg_addr, int *rc);
 extern int      rtl_rf_write(libusb_device_handle *h, int path, uint16_t reg_addr, uint32_t data);
 
 /* ------------------------------------------------------------------------- */
-/* Konfigurierbare Board-/RFE-Parameter (siehe rtl_cal.h).                    */
+/* Configurable board/RFE parameters (see rtl_cal.h).                         */
 /* ------------------------------------------------------------------------- */
 int rtl_cal_rfe_type  = 0;
 int rtl_cal_ext_pa_2g = 0;
 int rtl_cal_ext_pa_5g = 0;
 
 /* ------------------------------------------------------------------------- */
-/* Konstanten aus den Referenz-Headern.                                      */
+/* Constants from the reference headers.                                     */
 /* ------------------------------------------------------------------------- */
 #ifndef BIT
 #define BIT(n)              (1u << (n))
@@ -64,10 +65,10 @@ int rtl_cal_ext_pa_5g = 0;
 #define RF_PATH_A           0
 #define RF_PATH_B           1
 
-/* RF-Register (nur Offsets, wie im Original RF_0x.. bzw. RF_CHNLBW/RF_LCK).  */
+/* RF registers (offsets only, as in the original RF_0x.. resp. RF_CHNLBW/RF_LCK). */
 #define RF_0x00             0x00
 #define RF_0x08             0x08
-#define RF_0x18             0x18           /* RF_CHNLBW_Jaguar (Kanal/BW)     */
+#define RF_0x18             0x18           /* RF_CHNLBW_Jaguar (channel/BW)   */
 #define RF_0x30             0x30
 #define RF_0x31             0x31
 #define RF_0x32             0x32
@@ -77,35 +78,35 @@ int rtl_cal_ext_pa_5g = 0;
 #define RF_0xb4             0xB4           /* RF_LCK                          */
 #define RF_0xef             0xef
 
-/* MAC-Register (Byte-Zugriffe im Original via odm_write_1byte).             */
+/* MAC registers (byte accesses in the original via odm_write_1byte).        */
 #define REG_TXPAUSE         0x0522
 #define REG_SINGLE_TONE_CONT_TX_JAGUAR  0x0914
 
-/* Band-Type (CE-Variante: ODM_BAND_2_4G=0, ODM_BAND_5G=1).                  */
+/* Band type (CE variant: ODM_BAND_2_4G=0, ODM_BAND_5G=1).                   */
 #define BAND_2_4G           0
 #define BAND_5G             1
 
-/* Sicherungs-Register-Listen (aus _phy_iq_calibrate_8812a).                 */
+/* Backup register lists (from _phy_iq_calibrate_8812a).                     */
 #define MACBB_REG_NUM       9
 #define AFE_REG_NUM         12
 #define RF_REG_NUM          3
-#define CAL_NUM             10          /* cal_num im Original               */
+#define CAL_NUM             10          /* cal_num in the original           */
 
 /* ------------------------------------------------------------------------- */
-/* Fehlerbuchhaltung + Debug-Ausgabe.                                        */
+/* Error accounting + debug output.                                          */
 /* ------------------------------------------------------------------------- */
-static int g_cal_err;        /* akkumulierte USB-Fehler waehrend eines Laufs */
-static int g_cal_verbose;    /* Debug-Ausgaben an/aus                        */
+static int g_cal_err;        /* accumulated USB errors during a run          */
+static int g_cal_verbose;    /* debug output on/off                          */
 
 #define RFDBG(...) do { if (g_cal_verbose) printf(__VA_ARGS__); } while (0)
 
 /* ------------------------------------------------------------------------- */
-/* Delay-Helfer (ODM_delay_ms / mdelay).                                     */
+/* Delay helper (ODM_delay_ms / mdelay).                                     */
 /* ------------------------------------------------------------------------- */
 static void mdelay(unsigned ms) { usleep((useconds_t)ms * 1000u); }
 
 /* ------------------------------------------------------------------------- */
-/* Bit-Shift: Position des niederwertigsten gesetzten Bits (PHY_CalculateBitShift). */
+/* Bit shift: position of the least significant set bit (PHY_CalculateBitShift). */
 /* ------------------------------------------------------------------------- */
 static uint32_t bit_shift(uint32_t mask)
 {
@@ -117,7 +118,7 @@ static uint32_t bit_shift(uint32_t mask)
 }
 
 /* ------------------------------------------------------------------------- */
-/* BB-Register-Zugriff (0x800-0xFFF und MAC-Dwords via rtl_read32/rtl_write32). */
+/* BB register access (0x800-0xFFF and MAC dwords via rtl_read32/rtl_write32). */
 /* ------------------------------------------------------------------------- */
 static uint32_t bb_read(libusb_device_handle *h, uint16_t addr)
 {
@@ -158,7 +159,7 @@ static void bb_set(libusb_device_handle *h, uint16_t addr, uint32_t mask, uint32
 }
 
 /* ------------------------------------------------------------------------- */
-/* RF-Register-Zugriff (maskiert), aufgesetzt auf rtl_rf_read / rtl_rf_write. */
+/* RF register access (masked), built on top of rtl_rf_read / rtl_rf_write.   */
 /* ------------------------------------------------------------------------- */
 /* odm_get_rf_reg */
 static uint32_t rf_get(libusb_device_handle *h, int path, uint16_t reg, uint32_t mask)
@@ -357,8 +358,8 @@ static void iqk_configure_mac(libusb_device_handle *h)
 }
 
 /* ========================================================================= */
-/* IQK: Kernroutine (_iqk_tx_8812a)                                           */
-/*   Enthaelt LOK + TX-IQK + RX-IQK fuer Pfad A und B, inkl. Averaging.       */
+/* IQK: core routine (_iqk_tx_8812a)                                          */
+/*   Contains LOK + TX-IQK + RX-IQK for path A and B, incl. averaging.        */
 /* ========================================================================= */
 static void iqk_tx(libusb_device_handle *h, int is_5g)
 {
@@ -368,13 +369,13 @@ static void iqk_tx(libusb_device_handle *h, int is_5g)
 	int RX_IQC_temp[10][4], RX_IQC[4] = {0, 0, 0, 0};
 	int TX0_fail = 1, RX0_fail = 1, IQK0_ready = 0, TX0_finish = 0, RX0_finish = 0;
 	int TX1_fail = 1, RX1_fail = 1, IQK1_ready = 0, TX1_finish = 0, RX1_finish = 0;
-	int VDF_enable = 0;   /* im Original: aus band_width abgeleitet, dann hart 0 */
+	int VDF_enable = 0;   /* in the original: derived from band_width, then hard 0 */
 	int i, ii, dx = 0, dy = 0;
 
 	const int rfe_type   = rtl_cal_rfe_type;
 	const int ext_pa_2g  = rtl_cal_ext_pa_2g;
 	const int ext_pa_5g  = rtl_cal_ext_pa_5g;
-	/* support_interface: USB (nie PCIE) */
+	/* support_interface: USB (never PCIE) */
 
 	(void)VDF_enable;
 
@@ -443,7 +444,7 @@ static void iqk_tx(libusb_device_handle *h, int is_5g)
 	}
 
 	if (VDF_enable) {
-		/* VDF ist im Original deaktiviert; kein Code. */
+		/* VDF is disabled in the original; no code. */
 	} else {
 		bb_write(h, 0xc80, 0x18008c10); /* TX_Tone_idx[9:0], TxK_Mask[29] */
 		bb_write(h, 0xc84, 0x38008c10); /* RX_Tone_idx[9:0], RxK_Mask[29] */

@@ -1,42 +1,42 @@
 /*
- * rtl_mac.c — MAC-Initialisierung fuer den RTL8812AU (macOS, libusb, userspace).
+ * rtl_mac.c — MAC initialization for the RTL8812AU (macOS, libusb, userspace).
  *
  * ===========================================================================
  * INTEGRATION:
  * ---------------------------------------------------------------------------
- * Aufrufreihenfolge (nachdem der Chip laeuft und die FW geladen ist):
+ * Call order (after the chip is running and the FW is loaded):
  *
- *     rtl_open_first(...)        // USB-Handle, Interface 0 geclaimt
- *     rtl_power_on(h, ...)       // CARDEMU_TO_ACT Power-On-Sequenz
- *     rtl_fw_download(h, ...)    // NIC-Firmware laden
- *     rtl_mac_init(h, verbose);       // <-- DIESES MODUL: voller MAC-Bring-up
- *     rtl_mac_set_monitor(h, verbose);// <-- DIESES MODUL: Monitor-Mode-RX
- *     // danach: BB-Config (PHY_BBConfig8812), RF-Config, Kanalwahl, RX-URBs
+ *     rtl_open_first(...)        // USB handle, interface 0 claimed
+ *     rtl_power_on(h, ...)       // CARDEMU_TO_ACT power-on sequence
+ *     rtl_fw_download(h, ...)    // load NIC firmware
+ *     rtl_mac_init(h, verbose);       // <-- THIS MODULE: full MAC bring-up
+ *     rtl_mac_set_monitor(h, verbose);// <-- THIS MODULE: monitor-mode RX
+ *     // afterwards: BB config (PHY_BBConfig8812), RF config, channel selection, RX URBs
  *
  * PRECONDITIONS:
- *   - Der Chip muss vor rtl_mac_init eingeschaltet sein (rtl_power_on ok) und
- *     die Firmware muss bereits heruntergeladen/booten (rtl_fw_download ok).
- *     rtl_mac_init selbst schaltet den Chip NICHT ein.
- *   - Interface 0 muss geclaimt sein (Register-Zugriff via Vendor-Requests).
+ *   - The chip must be powered on before rtl_mac_init (rtl_power_on ok) and
+ *     the firmware must already be downloaded/booting (rtl_fw_download ok).
+ *     rtl_mac_init itself does NOT power the chip on.
+ *   - Interface 0 must be claimed (register access via vendor requests).
  *
- * REIHENFOLGE-HINWEISE (wichtig!):
- *   - rtl_mac_init MUSS vor der BB-/RF-Initialisierung laufen. Im Linux-HAL
- *     folgt PHY_BBConfig8812/PHY_RFConfig ERST nach dem MAC-Bring-up und nach
- *     dem finalen "CR |= MACTXEN|MACRXEN". Diese Reihenfolge hier beibehalten.
- *   - rtl_mac_set_monitor NACH rtl_mac_init aufrufen (es ueberschreibt das in
- *     rtl_mac_init per _InitWMACSetting gesetzte RCR mit dem Promisc-Wert und
- *     setzt RXFLTMAP0/1/2 = 0xFFFF).
- *   - Die Endpoint-Anzahl (Bulk-OUT) wird per libusb aus dem aktiven Config-
- *     Deskriptor ermittelt (entspricht _ConfigChipOutEP_8812). Faellt die
- *     Ermittlung aus, wird 4 OUT-EPs angenommen (Standard fuer 8812AU).
+ * ORDERING NOTES (important!):
+ *   - rtl_mac_init MUST run before BB/RF initialization. In the Linux HAL
+ *     PHY_BBConfig8812/PHY_RFConfig follows ONLY after the MAC bring-up and after
+ *     the final "CR |= MACTXEN|MACRXEN". Keep this order here.
+ *   - Call rtl_mac_set_monitor AFTER rtl_mac_init (it overwrites the RCR set
+ *     in rtl_mac_init via _InitWMACSetting with the promisc value and
+ *     sets RXFLTMAP0/1/2 = 0xFFFF).
+ *   - The endpoint count (bulk-OUT) is determined via libusb from the active
+ *     config descriptor (matches _ConfigChipOutEP_8812). If the
+ *     determination fails, 4 OUT-EPs are assumed (default for 8812AU).
  *
- * Portiert (GPLv2-Quelle, reference/rtl8812au — read only):
- *   - array_mp_8812a_mac_reg[] : halhwimg8812a_mac.c (VERBATIM uebernommen)
- *   - Apply-Loop odm_read_and_config_mp_8812a_mac_reg (USB-Zweig fuer 0x011)
+ * Ported (GPLv2 source, reference/rtl8812au — read only):
+ *   - array_mp_8812a_mac_reg[] : halhwimg8812a_mac.c (taken VERBATIM)
+ *   - Apply loop odm_read_and_config_mp_8812a_mac_reg (USB branch for 0x011)
  *   - usb_halinit.c: _InitQueueReservedPage/_InitTxBufferBoundary/
  *     _InitQueuePriority/_InitPageBoundary/_InitTransferPageSize/
  *     _InitDriverInfoSize/_InitNetworkType/_InitWMACSetting/_InitAdaptiveCtrl/
- *     _InitEDCA/_InitRetryFunction/_InitBurstPktLen (USB-Varianten)
+ *     _InitEDCA/_InitRetryFunction/_InitBurstPktLen (USB variants)
  *   - rtl8812a_hal_init.c: InitLLTTable8812A, _InitBeaconParameters_8812A,
  *     hw_var_set_monitor (Monitor-RCR)
  * ===========================================================================
@@ -46,7 +46,7 @@
 #include "rtl_usb.h"
 #include "rtl_mac.h"
 
-/* Typen fuer die verbatim uebernommene Tabelle. */
+/* Types for the verbatim-adopted table. */
 typedef unsigned char  u8;
 typedef unsigned short u16;
 typedef unsigned int   u32;
@@ -56,11 +56,11 @@ typedef unsigned int   u32;
 #endif
 
 /* ===========================================================================
- * Register-Konstanten (aus include/hal_com_reg.h, rtl8812a_spec.h,
- * rtl8812a_hal.h des Referenztreibers).
+ * Register constants (from include/hal_com_reg.h, rtl8812a_spec.h,
+ * rtl8812a_hal.h of the reference driver).
  * =========================================================================== */
 
-/* System / CR / Netzwerktyp */
+/* System / CR / network type */
 #define REG_SYS_FUNC_EN     0x0002
 #define REG_RSV_CTRL        0x001C
 #define REG_CR              0x0100
@@ -68,7 +68,7 @@ typedef unsigned int   u32;
 #define MSR_NOLINK          0x00
 #define MACTXEN             BIT(6)
 #define MACRXEN             BIT(7)
-/* REG_CR DMA/Block-Enables (hal_com_reg.h) — noetig, damit RX/TX-DMA laeuft. */
+/* REG_CR DMA/block enables (hal_com_reg.h) — needed so RX/TX DMA runs. */
 #define HCI_TXDMA_EN        BIT(0)
 #define HCI_RXDMA_EN        BIT(1)
 #define TXDMA_EN            BIT(2)
@@ -81,7 +81,7 @@ typedef unsigned int   u32;
 #define MASK_NETTYPE        0x30000
 #define NT_LINK_AP          0x2
 
-/* Transfer-Page-Size / Pkt-Buffer */
+/* Transfer page size / pkt buffer */
 #define REG_PBP             0x0104
 #define _PSTX(x)            ((x) << 4)
 #define PBP_512             0x3
@@ -100,8 +100,8 @@ typedef unsigned int   u32;
 #define _NPQ(x)             ((x) & 0xFF)
 #define LD_RQPN             BIT(31)
 
-/* Page-Zahlen 8812 (aus rtl8812a_hal.h; Default-Build: kein WOWLAN/NDPA/DBG).
- *   BCNQ_PAGE_NUM_8812        = MAX_BEACON_LEN/512 + 6 = 0x07  (Kommentar Ref.)
+/* Page counts 8812 (from rtl8812a_hal.h; default build: no WOWLAN/NDPA/DBG).
+ *   BCNQ_PAGE_NUM_8812        = MAX_BEACON_LEN/512 + 6 = 0x07  (comment from ref.)
  *   WOWLAN_PAGE_NUM_8812      = 0x00
  *   FW_NDPA_PAGE_NUM          = 0x00
  *   FW_DBG_MSG_PKT_PAGE_NUM   = 0x00
@@ -114,7 +114,7 @@ typedef unsigned int   u32;
 #define NORMAL_PAGE_NUM_HPQ_8812        0x10
 #define NORMAL_PAGE_NUM_NPQ_8812        0x00
 
-/* TX-Buffer-Boundary-Register */
+/* TX buffer boundary registers */
 #define REG_BCNQ_BDNY       0x0424
 #define REG_MGQ_BDNY        0x0425
 #define REG_WMAC_LBK_BF_HD  0x045D
@@ -122,7 +122,7 @@ typedef unsigned int   u32;
 /* RX DMA boundary (MAX_RX_DMA_BUFFER_SIZE_8812 0x3E80 - RESV 0 - 1) */
 #define RX_DMA_BOUNDARY_8812   0x3E7F
 
-/* Queue-Prioritaet / OUT-EP-Auswahl */
+/* Queue priority / OUT-EP selection */
 #define _TXDMA_HIQ_MAP(x)   (((x) & 0x3) << 14)
 #define _TXDMA_MGQ_MAP(x)   (((x) & 0x3) << 12)
 #define _TXDMA_BKQ_MAP(x)   (((x) & 0x3) << 10)
@@ -139,11 +139,11 @@ typedef unsigned int   u32;
 #define TX_SELE_EQ          BIT(3)
 #define REG_HIQ_NO_LMT_EN   0x05A7
 
-/* DriverInfo-Groesse */
+/* DriverInfo size */
 #define REG_RX_DRVINFO_SZ   0x060F
-#define DRVINFO_SZ          4       /* Einheit 8 Byte */
+#define DRVINFO_SZ          4       /* unit 8 bytes */
 
-/* WMAC / RCR / RX-Filter */
+/* WMAC / RCR / RX filter */
 #define REG_RCR             0x0608
 #define REG_RX_PKT_LIMIT    0x060C
 #define REG_MAR             0x0620
@@ -151,11 +151,11 @@ typedef unsigned int   u32;
 #define REG_RXFLTMAP1       0x06A2  /* control */
 #define REG_RXFLTMAP2       0x06A4  /* data */
 
-/* RCR-Bits (Jaguar/8812, Offset 0x608, 32 bit) */
-#define RCR_APPFCS          BIT(31) /* FCS an Payload anhaengen */
+/* RCR bits (Jaguar/8812, offset 0x608, 32 bit) */
+#define RCR_APPFCS          BIT(31) /* append FCS to payload */
 #define RCR_APP_MIC         BIT(30)
 #define RCR_APP_ICV         BIT(29)
-#define RCR_APP_PHYST_RXFF  BIT(28) /* PHY-Status vor RX-Paket im RXFF */
+#define RCR_APP_PHYST_RXFF  BIT(28) /* PHY status before RX packet in RXFF */
 #define RCR_LSIGEN          BIT(23)
 #define RCR_MFBEN           BIT(22)
 #define RCR_HTC_LOC_CTRL    BIT(14)
@@ -208,7 +208,7 @@ typedef unsigned int   u32;
 /* Retry */
 #define REG_ACKTO           0x0640
 
-/* Beacon-Parameter */
+/* Beacon parameters */
 #define REG_BCNTCFG         0x0510
 #define REG_TBTT_PROHIBIT   0x0540
 #define REG_BCN_CTRL        0x0550
@@ -220,7 +220,7 @@ typedef unsigned int   u32;
 #define DRIVER_EARLY_INT_TIME_8812        0x05
 #define BCN_DMA_ATIME_INT_TIME_8812       0x02
 
-/* Burst-Pkt-Len (_InitBurstPktLen) */
+/* Burst pkt len (_InitBurstPktLen) */
 #define REG_RXDMA_STATUS         0x0288
 #define REG_RXDMA_PRO_8812       0x0290
 #define REG_AMPDU_MAX_TIME_8812  0x0456
@@ -234,7 +234,7 @@ typedef unsigned int   u32;
 #define REG_ARFR2_8812           0x048C
 #define REG_ARFR3_8812           0x0494
 
-/* LLT-Init */
+/* LLT init */
 #define REG_LLT_INIT            0x01E0
 #define _LLT_NO_ACTIVE         0x0
 #define _LLT_WRITE_ACCESS      0x1
@@ -245,13 +245,13 @@ typedef unsigned int   u32;
 #define POLLING_LLT_THRESHOLD  20
 #define LAST_ENTRY_OF_TX_PKT_BUFFER_8812  255
 
-/* USB-Interface-Kennung fuer die MAC-Reg-Tabellenbedingung (ODM_ITRF_USB) */
+/* USB interface identifier for the MAC-reg table condition (ODM_ITRF_USB) */
 #define MAC_ITRF_USB   0x02
 #define COND_ELSE      2
 #define COND_ENDIF     3
 
 /* ===========================================================================
- * MAC-Register-Tabelle — VERBATIM aus
+ * MAC register table — VERBATIM from
  *   hal/phydm/rtl8812a/halhwimg8812a_mac.c : u32 array_mp_8812a_mac_reg[]
  * =========================================================================== */
 static u32 array_mp_8812a_mac_reg[] = {
@@ -370,16 +370,16 @@ static u32 array_mp_8812a_mac_reg[] = {
 };
 
 /* ===========================================================================
- * MAC-Reg-Tabelle anwenden (PHY_MACConfig8812 ->
- * odm_read_and_config_mp_8812a_mac_reg). Die Tabelle enthaelt einen
- * Conditional-Block (IF interface==USB -> 0x011=0x66, ELSE 0x011=0x5A).
- * check_positive() ist auf unser USB-Interface fest verdrahtet. Jeder
- * Nicht-Bedingungs-Eintrag ist ein 8-bit-Write (odm_config_mac_8812a =>
+ * Apply the MAC-reg table (PHY_MACConfig8812 ->
+ * odm_read_and_config_mp_8812a_mac_reg). The table contains a
+ * conditional block (IF interface==USB -> 0x011=0x66, ELSE 0x011=0x5A).
+ * check_positive() is hard-wired to our USB interface. Every
+ * non-condition entry is an 8-bit write (odm_config_mac_8812a =>
  * odm_write_1byte).
  * =========================================================================== */
 
-/* Portiert aus check_positive() in halhwimg8812a_mac.c, fest fuer USB-Interface
- * (support_interface = ODM_ITRF_USB), alle uebrigen dm-Felder = 0/DONTCARE. */
+/* Ported from check_positive() in halhwimg8812a_mac.c, fixed for USB interface
+ * (support_interface = ODM_ITRF_USB), all remaining dm fields = 0/DONTCARE. */
 static int mac_check_positive(u32 cond1, u32 cond2, u32 cond3, u32 cond4)
 {
 	/* driver1: nur das Interface-Feld (Bits [11:8] = interface & 0x0F) ist

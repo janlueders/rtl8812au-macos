@@ -1,5 +1,5 @@
 /*
- * rtl_ccmp — AES-CCM (CCMP) + AES-Key-Unwrap. Siehe rtl_ccmp.c.
+ * rtl_ccmp — AES-CCM (CCMP) + AES-Key-Unwrap. See rtl_ccmp.c.
  */
 #ifndef RTL_CCMP_H
 #define RTL_CCMP_H

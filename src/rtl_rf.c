@@ -1,36 +1,36 @@
 /*
- * rtl_rf.c — RF-Init + Kanalsteuerung fuer den RTL8812AU (macOS/libusb, userspace).
+ * rtl_rf.c — RF init + channel control for the RTL8812AU (macOS/libusb, userspace).
  *
- * INTEGRATION / AUFRUFREIHENFOLGE:
- *   1. rtl_power_on()      (rtl_usb.c)   — Chip einschalten
- *   2. rtl_fw_download()   (rtl_usb.c)   — Firmware laden
- *   3. MAC-Init            (anderes Modul)
- *   4. BB-Init  (PHY_REG + AGC-Tabellen) (anderes Modul)  <-- Voraussetzung!
- *   5. rtl_rf_init(h, verbose)           — DIESES Modul: radioA/radioB-Tabellen
- *   6. (RF/IQ/LCK-Kalibrierung)          — anderes Modul, optional aber empfohlen
- *   7. rtl_rf_set_channel(h, ch, RTL_BW_20)  — DIESES Modul: Band + Kanal + BW
+ * INTEGRATION / CALL ORDER:
+ *   1. rtl_power_on()      (rtl_usb.c)   — power on the chip
+ *   2. rtl_fw_download()   (rtl_usb.c)   — load firmware
+ *   3. MAC init            (other module)
+ *   4. BB init  (PHY_REG + AGC tables)  (other module)  <-- prerequisite!
+ *   5. rtl_rf_init(h, verbose)           — THIS module: radioA/radioB tables
+ *   6. (RF/IQ/LCK calibration)           — other module, optional but recommended
+ *   7. rtl_rf_set_channel(h, ch, RTL_BW_20)  — THIS module: band + channel + BW
  *
- *   rtl_rf_read()/rtl_rf_write() koennen nach Schritt 4 jederzeit genutzt werden.
+ *   rtl_rf_read()/rtl_rf_write() can be used at any time after step 4.
  *
- * VORAUSSETZUNGEN (VOR rtl_rf_init):
- *   - Chip powered on, Firmware geladen, MAC-Init fertig.
- *   - BB-Init fertig: insbesondere muessen die BB-RF-Interface-Register und die
- *     LSSI/3-wire-Pfade aktiv sein, sonst schlagen RF-Reads/Writes fehl.
- *     (PHY_BBConfig8812 schaltet u.a. REG_RF_CTRL=0x07 und die RF-Power ein.)
+ * PREREQUISITES (BEFORE rtl_rf_init):
+ *   - Chip powered on, firmware loaded, MAC init done.
+ *   - BB init done: in particular, the BB-RF interface registers and the
+ *     LSSI/3-wire paths must be active, otherwise RF reads/writes fail.
+ *     (PHY_BBConfig8812 enables, among other things, REG_RF_CTRL=0x07 and RF power.)
  *
- * RF-ZUGRIFF: RF-Register (Radio A/B) sind NICHT per USB adressierbar. Sie werden
- * indirekt ueber Baseband-LSSI-Register (3-wire) gelesen/geschrieben — hier
- * self-contained via rtl_read32/rtl_write32 nachgebildet (phy_RFSerialRead/Write).
+ * RF ACCESS: RF registers (Radio A/B) are NOT addressable over USB. They are
+ * read/written indirectly via Baseband LSSI registers (3-wire) — reproduced here
+ * self-contained via rtl_read32/rtl_write32 (phy_RFSerialRead/Write).
  *
- * ANMERKUNGEN ZUR TREUE:
- *   - Die radioA/radioB-Tabellen sind VERBATIM aus halhwimg8812a_rf.c uebernommen.
- *   - Der Apply-Loop inkl. IF/ELSEIF/ELSE/ENDIF und check_positive() ist exakt
- *     nachgebildet. Die Hardware-Deskriptoren (board_type, cut_version, ...) sind
- *     auf die Standard-Konfiguration eines generischen 8812AU ohne externes
- *     Frontend (board_type=0) gesetzt -> es greifen die ELSE-Zweige. Keine der
- *     Tabellen-Bedingungen selektiert nach Cut-Version/Package (die betreffenden
- *     Nibbles sind in allen Bedingungen 0), daher ist das Ergebnis deterministisch.
- *   - Tx-Power-Setzung und IQK/LCK-Kalibrierung gehoeren NICHT hierher (Schritt 6).
+ * FIDELITY NOTES:
+ *   - The radioA/radioB tables are taken VERBATIM from halhwimg8812a_rf.c.
+ *   - The apply loop including IF/ELSEIF/ELSE/ENDIF and check_positive() is
+ *     reproduced exactly. The hardware descriptors (board_type, cut_version, ...) are
+ *     set to the default configuration of a generic 8812AU without an external
+ *     frontend (board_type=0) -> the ELSE branches take effect. None of the
+ *     table conditions select by cut version/package (the relevant
+ *     nibbles are 0 in all conditions), so the result is deterministic.
+ *   - Tx power setting and IQK/LCK calibration do NOT belong here (step 6).
  */
 
 #include <stdio.h>
@@ -38,32 +38,32 @@
 #include "rtl_usb.h"
 #include "rtl_rf.h"
 
-typedef unsigned int u32;   /* fuer die verbatim uebernommenen Tabellen */
+typedef unsigned int u32;   /* for the verbatim tables */
 typedef unsigned char u8;
 typedef unsigned short u16;
 
 /* ===================================================================== *
- *  Register-/Bitmasken-Konstanten (aus include/Hal8812PhyReg.h,
+ *  Register / bitmask constants (from include/Hal8812PhyReg.h,
  *  include/hal_com_reg.h, include/rtl8812a_spec.h)
  * ===================================================================== */
 
-/* --- Baseband-Register fuer RF-3-wire-Zugriff (Jaguar) --- */
-#define rA_LSSIWrite_Jaguar     0xc90   /* rf3wireOffset Pfad A (RF-Write) */
-#define rB_LSSIWrite_Jaguar     0xe90   /* rf3wireOffset Pfad B (RF-Write) */
-#define rHSSIRead_Jaguar        0x8b0   /* rfHSSIPara2 (RF-Read-Adresse), beide Pfade */
+/* --- Baseband registers for RF 3-wire access (Jaguar) --- */
+#define rA_LSSIWrite_Jaguar     0xc90   /* rf3wireOffset path A (RF-Write) */
+#define rB_LSSIWrite_Jaguar     0xe90   /* rf3wireOffset path B (RF-Write) */
+#define rHSSIRead_Jaguar        0x8b0   /* rfHSSIPara2 (RF read address), both paths */
 #define bHSSIRead_addr_Jaguar   0xff
-#define rA_PIRead_Jaguar        0xd04   /* RF-Readback (PI) Pfad A */
-#define rB_PIRead_Jaguar        0xd44   /* RF-Readback (PI) Pfad B */
-#define rA_SIRead_Jaguar        0xd08   /* RF-Readback (SI) Pfad A */
-#define rB_SIRead_Jaguar        0xd48   /* RF-Readback (SI) Pfad B */
-#define rRead_data_Jaguar       0xfffff /* Readback-Datenmaske (20 bit) */
+#define rA_PIRead_Jaguar        0xd04   /* RF readback (PI) path A */
+#define rB_PIRead_Jaguar        0xd44   /* RF readback (PI) path B */
+#define rA_SIRead_Jaguar        0xd08   /* RF readback (SI) path A */
+#define rB_SIRead_Jaguar        0xd48   /* RF readback (SI) path B */
+#define rRead_data_Jaguar       0xfffff /* readback data mask (20 bit) */
 #define bLSSIWrite_data_Jaguar  0x000fffff
 #define RFREGOFFSETMASK         0xfffff /* == bLSSIWrite_data_Jaguar */
 
-/* --- Baseband-Register fuer Kanal/Bandbreite --- */
+/* --- Baseband registers for channel/bandwidth --- */
 #define rCCAonSec_Jaguar        0x838
 #define rL1PeakTH_Jaguar        0x848
-#define rRFMOD_Jaguar           0x8ac   /* RF mode / Bandbreite */
+#define rRFMOD_Jaguar           0x8ac   /* RF mode / bandwidth */
 #define rADC_Buf_Clk_Jaguar     0x8c4
 #define rFc_area_Jaguar         0x860   /* fc_area */
 #define rPwed_TH_Jaguar         0x830

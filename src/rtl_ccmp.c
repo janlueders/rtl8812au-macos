@@ -1,9 +1,9 @@
 /*
- * rtl_ccmp — AES-CCM (CCMP) fuer 802.11-Datenframes + AES-Key-Unwrap (RFC3394).
+ * rtl_ccmp — AES-CCM (CCMP) for 802.11 data frames + AES-Key-Unwrap (RFC3394).
  *
- * Software-Krypto (macOS CommonCrypto, AES-128-ECB als Primitive), damit der
- * Datenpfad ohne Chip-HW-Krypto auskommt. CCM-Kern gegen NIST SP 800-38C
- * verifizierbar (rtl_ccmp_selftest).
+ * Software crypto (macOS CommonCrypto, AES-128-ECB as the primitive), so the
+ * data path works without the chip's HW crypto. CCM core is verifiable against
+ * NIST SP 800-38C (rtl_ccmp_selftest).
  */
 #include "rtl_ccmp.h"
 #include <string.h>
@@ -15,9 +15,9 @@ static void aes_ecb(const uint8_t key[16], const uint8_t in[16], uint8_t out[16]
             key, 16, NULL, in, 16, out, 16, &moved);
 }
 
-/* AES-CCM. encrypt=1: in=plaintext(inlen) -> out=cipher(inlen), mic(M) erzeugt.
- * encrypt=0: in=cipher(inlen) -> out=plaintext(inlen), mic(M) gegen erwartet
- * pruefen (Rueckgabe 0 ok, -1 MIC-Fehler). nonce nlen=13 (CCMP), M=8, L=2. */
+/* AES-CCM. encrypt=1: in=plaintext(inlen) -> out=cipher(inlen), mic(M) produced.
+ * encrypt=0: in=cipher(inlen) -> out=plaintext(inlen), check mic(M) against
+ * expected (return 0 ok, -1 MIC error). nonce nlen=13 (CCMP), M=8, L=2. */
 int rtl_aes_ccm(int encrypt, const uint8_t key[16],
                 const uint8_t *nonce, int nlen,
                 const uint8_t *aad, int alen,
@@ -27,16 +27,16 @@ int rtl_aes_ccm(int encrypt, const uint8_t key[16],
     int L = 15 - nlen;
     uint8_t X[16], B[16], S0[16], A[16];
 
-    /* Fuer Decrypt zuerst entschluesseln (MAC laeuft ueber Klartext). */
-    /* CTR-Bloecke vorbereiten: A0 = [L-1][nonce][0..0] */
+    /* For decrypt, decrypt first (the MAC runs over the plaintext). */
+    /* Prepare CTR blocks: A0 = [L-1][nonce][0..0] */
     memset(A, 0, 16);
     A[0] = (uint8_t)(L - 1);
     memcpy(A + 1, nonce, nlen);
-    aes_ecb(key, A, S0);   /* S0 fuer MIC-Verschluesselung */
+    aes_ecb(key, A, S0);   /* S0 for MIC encryption */
 
-    uint8_t *plain = out;  /* out haelt am Ende Klartext (dec) bzw. Cipher (enc) */
+    uint8_t *plain = out;  /* out finally holds plaintext (dec) or cipher (enc) */
     if (!encrypt) {
-        /* CTR-Entschluesselung: cipher(in) -> plain(out) */
+        /* CTR decryption: cipher(in) -> plain(out) */
         for (int off = 0; off < inlen; off += 16) {
             uint32_t ctr = (uint32_t)(off / 16 + 1);
             memset(A, 0, 16); A[0] = (uint8_t)(L - 1); memcpy(A + 1, nonce, nlen);
@@ -46,14 +46,14 @@ int rtl_aes_ccm(int encrypt, const uint8_t key[16],
             for (int i = 0; i < n; i++) plain[off + i] = in[off + i] ^ S[i];
         }
     }
-    const uint8_t *mac_src = encrypt ? in : plain;  /* MAC immer ueber Klartext */
+    const uint8_t *mac_src = encrypt ? in : plain;  /* MAC always over plaintext */
 
     /* --- CBC-MAC --- */
     memset(B, 0, 16);
     B[0] = (uint8_t)((alen > 0 ? 0x40 : 0) | (((M - 2) / 2) << 3) | (L - 1));
     memcpy(B + 1, nonce, nlen);
     for (int i = 0; i < L; i++) B[15 - i] = (uint8_t)((inlen >> (8 * i)) & 0xff);
-    aes_ecb(key, B, X);   /* X = E(B0), da X0=0 */
+    aes_ecb(key, B, X);   /* X = E(B0), since X0=0 */
 
     if (alen > 0) {
         uint8_t ab[16]; memset(ab, 0, 16);
@@ -99,8 +99,8 @@ int rtl_aes_ccm(int encrypt, const uint8_t key[16],
     }
 }
 
-/* RFC3394 AES-Key-Unwrap (fuer GTK aus EAPOL msg3, KEK). out = wrapped-8 Bytes.
- * wlen = Laenge der gewickelten Daten (Vielfaches von 8, >= 24). */
+/* RFC3394 AES-Key-Unwrap (for GTK from EAPOL msg3, KEK). out = wrapped-8 bytes.
+ * wlen = length of the wrapped data (multiple of 8, >= 24). */
 int rtl_aes_unwrap(const uint8_t *kek, const uint8_t *wrapped, int wlen, uint8_t *out) {
     int n = wlen / 8 - 1;
     if (n < 1) return -1;
@@ -118,28 +118,28 @@ int rtl_aes_unwrap(const uint8_t *kek, const uint8_t *wrapped, int wlen, uint8_t
         }
     }
     for (int i = 1; i <= n; i++) memcpy(out + 8 * (i - 1), r[i], 8);
-    /* Integritaet: a muss dem Default-IV A6A6A6A6A6A6A6A6 entsprechen. */
+    /* Integrity: a must match the default IV A6A6A6A6A6A6A6A6. */
     for (int i = 0; i < 8; i++) if (a[i] != 0xA6) return -1;
     return 0;
 }
 
-/* AAD + Nonce aus dem 802.11-Header bauen (wpa_supplicant ccmp_aad_nonce).
- * ccmp = Zeiger auf den 8-Byte-CCMP-Header (nach dem MAC-Header). */
+/* Build AAD + Nonce from the 802.11 header (wpa_supplicant ccmp_aad_nonce).
+ * ccmp = pointer to the 8-byte CCMP header (after the MAC header). */
 static int ccmp_aad_nonce(const uint8_t *f, int hdrlen, int qos, int a4,
                           const uint8_t *ccmp, uint8_t *aad, int *aadlen, uint8_t nonce[13]) {
     uint16_t fc = (uint16_t)(f[0] | (f[1] << 8));
     uint16_t stype = fc & 0x00F0;
     if ((fc & 0x000C) == 0x0008) {          /* Data */
-        fc &= ~0x0070;                       /* Subtype-Bits 4,5,6 maskieren */
-        if (stype & 0x0080) fc &= ~0x8000;   /* QoS -> Order maskieren */
+        fc &= ~0x0070;                       /* mask subtype bits 4,5,6 */
+        if (stype & 0x0080) fc &= ~0x8000;   /* QoS -> mask Order */
     }
     fc &= ~0x0800; fc &= ~0x1000; fc &= ~0x2000; /* Retry, PwrMgmt, MoreData */
-    /* Protected-Bit NICHT maskieren: der AP (mac80211) laesst es in der AAD auf 1. */
+    /* Do NOT mask the Protected bit: the AP (mac80211) leaves it at 1 in the AAD. */
 
     int p = 0;
     aad[p++] = fc & 0xff; aad[p++] = (fc >> 8) & 0xff;
     memcpy(aad + p, f + 4, 18); p += 18;         /* A1 + A2 + A3 */
-    aad[p++] = f[22] & 0x0f; aad[p++] = 0x00;    /* SC: Frag behalten, Seq maskieren */
+    aad[p++] = f[22] & 0x0f; aad[p++] = 0x00;    /* SC: keep Frag, mask Seq */
     if (a4) { memcpy(aad + p, f + 24, 6); p += 6; }
     if (qos) { aad[p++] = f[hdrlen - 2] & 0x0f; aad[p++] = 0x00; }
     *aadlen = p;
@@ -159,12 +159,12 @@ int rtl_ccmp_decrypt_frame(const uint8_t key[16], const uint8_t *f, int len,
     int hdrlen = 24 + (a4 ? 6 : 0) + (qos ? 2 : 0);
     if (len < hdrlen + 8 + 8) return -1;
     const uint8_t *ccmp = f + hdrlen;
-    if (!(ccmp[3] & 0x20)) return -1;            /* ExtIV muss gesetzt sein (CCMP) */
+    if (!(ccmp[3] & 0x20)) return -1;            /* ExtIV must be set (CCMP) */
 
     uint8_t aad[32], nonce[13]; int al = 0;
     ccmp_aad_nonce(f, hdrlen, qos, a4, ccmp, aad, &al, nonce);
 
-    int clen = len - hdrlen - 8 - 8;             /* minus CCMP-Header minus MIC */
+    int clen = len - hdrlen - 8 - 8;             /* minus CCMP header minus MIC */
     const uint8_t *cipher = f + hdrlen + 8;
     const uint8_t *mic = cipher + clen;
     if (clen <= 0) return -1;
@@ -177,7 +177,7 @@ int rtl_ccmp_encrypt_frame(const uint8_t key[16], const uint8_t *hdr, int hdrlen
                            const uint8_t *payload, int plen, uint64_t pn,
                            uint8_t *out, int *outlen) {
     memcpy(out, hdr, hdrlen);
-    out[1] |= 0x40;                              /* Protected-Bit setzen */
+    out[1] |= 0x40;                              /* set Protected bit */
     uint8_t *ccmp = out + hdrlen;
     ccmp[0] = pn & 0xff; ccmp[1] = (pn >> 8) & 0xff; ccmp[2] = 0x00;
     ccmp[3] = 0x20;                              /* ExtIV, KeyID 0 */
@@ -197,7 +197,7 @@ int rtl_ccmp_encrypt_frame(const uint8_t key[16], const uint8_t *hdr, int hdrlen
     return 0;
 }
 
-/* Selbsttest: NIST SP 800-38C, Example 1 (M=4, L=8, nonce 7B). */
+/* Self-test: NIST SP 800-38C, Example 1 (M=4, L=8, nonce 7B). */
 int rtl_ccmp_selftest(void) {
     uint8_t key[16]; for (int i = 0; i < 16; i++) key[i] = 0x40 + i;
     uint8_t N[7]  = {0x10,0x11,0x12,0x13,0x14,0x15,0x16};

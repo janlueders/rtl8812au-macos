@@ -1,14 +1,14 @@
 /*
- * usbprobe — Meilenstein 1 fuer den nativen macOS-RTL8812AU-Zugriff.
+ * usbprobe — Milestone 1 for native macOS RTL8812AU access.
  *
- * Findet den Alfa AWUS036ACH (Realtek VID 0x0bda) am USB, oeffnet ihn, dumpt
- * Descriptor + Endpoints (damit wir die Bulk-IN/OUT- und Control-Endpoints fuer
- * RX/TX/Register kennen) und versucht, das Interface zu claimen.
+ * Finds the Alfa AWUS036ACH (Realtek VID 0x0bda) on USB, opens it, dumps
+ * descriptor + endpoints (so we know the bulk-IN/OUT and control endpoints for
+ * RX/TX/register access) and tries to claim the interface.
  *
- * Reiner Userspace, keine Kernel-/Kext-/DriverKit-Abhaengigkeit.
+ * Pure userspace, no kernel/kext/DriverKit dependency.
  *
- * Bauen:  make        (siehe Makefile)
- * Nutzen: Adapter einstecken, dann ./usbprobe
+ * Build: make        (see Makefile)
+ * Use:   plug in the adapter, then ./usbprobe
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,7 +17,7 @@
 
 #define REALTEK_VID 0x0bda
 
-/* Bekannte RTL8812AU-PIDs (AWUS036ACH kommt meist als 0x8812 oder 0x881a). */
+/* Known RTL8812AU PIDs (AWUS036ACH usually appears as 0x8812 or 0x881a). */
 static const uint16_t known_pids[] = {
     0x8812, 0x881a, 0x881b, 0x881c, 0x8813, 0xa811, 0x0811, 0x0820, 0x0823,
 };
@@ -117,7 +117,7 @@ int main(void) {
         print_string(h, d.iSerialNumber, "Seriennr.:");
         dump_config(dev);
 
-        /* Claim-Versuch auf Interface 0 — belegt das Geraet fuer Userspace. */
+        /* Claim attempt on interface 0 — reserves the device for userspace. */
         rc = libusb_claim_interface(h, 0);
         if (rc == 0) {
             printf("  claim if0:     OK — Userspace hat das Geraet.\n");
