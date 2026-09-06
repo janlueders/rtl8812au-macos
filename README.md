@@ -1,135 +1,134 @@
-# alfa-driver — RTL8812AU nativ auf macOS Apple Silicon (Userspace)
+# alfa-driver — RTL8812AU native on macOS Apple Silicon (userspace)
 
-Ziel: Monitor Mode + Packet Injection mit dem **Alfa AWUS036ACH (RTL8812AU)**
-**nativ auf macOS (Apple Silicon, M-Prozessor)** — ohne VM, ohne Linux, ohne Kext,
-ohne DriverKit.
+Monitor mode + packet injection with the **Alfa AWUS036ACH (RTL8812AU)**
+**natively on macOS (Apple Silicon, M-series)** — no VM, no Linux, no kext,
+no DriverKit. Pure userspace over libusb.
 
-## Warum Userspace statt Treiber
+> For authorized WLAN auditing, CTFs, and security research on networks you own
+> or have permission to test.
 
-Auf macOS Apple Silicon gibt es **keinen** gangbaren Kernel-Treiber-Pfad für ein
-USB-WLAN-Gerät:
+## Why userspace instead of a driver
 
-- Kexts sind faktisch abgeschafft; die `IO80211`-KPIs sind nicht öffentlich.
-- DriverKit hat `USBDriverKit` und (nur Ethernet-artiges) `NetworkingDriverKit`,
-  aber **keine 802.11/WLAN-Familie**. Apples WLAN-Stack ist privat.
+On macOS Apple Silicon there is **no** viable kernel-driver path for a USB Wi-Fi
+device:
 
-Monitor Mode und Injection brauchen diese OS-Integration aber nicht. Beim
-RTL8812AU sind das **Chip-Funktionen**: Register konfigurieren, dann rohe
-802.11-Frames über die USB-Bulk-Endpoints empfangen/senden. Das macht ein
-normales macOS-Userspace-Programm über **libusb** vollständig selbst.
+- Kexts are effectively gone; the `IO80211` KPIs are private/undocumented.
+- DriverKit offers `USBDriverKit` and (Ethernet-only) `NetworkingDriverKit`, but
+  **no 802.11/Wi-Fi family**. Apple's Wi-Fi stack is private.
 
-Vorteil: läuft auf einem komplett gesperrten Apple-Silicon-Mac. Keine
-SIP-Abschaltung, keine Reduced Security, keine Signatur/Notarisierung nötig.
-macOS bringt keinen RTL8812AU-Treiber mit → das Gerät ist frei und greifbar.
+Monitor mode and injection do not need that OS integration. On the RTL8812AU they
+are **chip functions**: configure registers, then send/receive raw 802.11 frames
+over the USB bulk endpoints. A normal macOS userspace program does all of that
+itself via **libusb**.
 
-## Architektur
+Upside: runs on a fully locked-down Apple Silicon Mac — no SIP disable, no reduced
+security, no signing/notarization required. macOS ships no RTL8812AU driver, so
+the device is free for userspace to claim.
+
+## Architecture
 
 ```
   Alfa AWUS036ACH (RTL8812AU)
-        │  USB (bulk-in = RX, bulk-out = TX, control = Register/Firmware)
+        │  USB (bulk-in = RX, bulk-out = TX, control = registers/firmware)
         ▼
-  ┌──────────────────────────────────────────┐
-  │  alfa-driver (arm64 macOS, libusb)         │
-  │                                            │
-  │  1. usbprobe   — Gerät finden/greifen      │  ← Meilenstein 1 (DA)
-  │  2. hal        — Firmware-Upload, Reg-Init │  ← aus Linux-HAL portiert
-  │  3. phy/rf     — Kanal, Band (2.4/5GHz),   │
-  │                  Bandbreite setzen         │
-  │  4. rx         — Bulk-IN, RX-Deskriptor →  │
-  │                  802.11-Frame + radiotap   │
-  │  5. tx/inject  — 802.11-Frame + TX-Desk. → │
-  │                  Bulk-OUT                   │
-  │  6. output     — Wireshark extcap / pcap   │
-  └──────────────────────────────────────────┘
+  ┌────────────────────────────────────────────┐
+  │  alfa-driver (arm64 macOS, libusb)          │
+  │  rtl_usb   USB vendor-request register I/O   │
+  │  rtl_init  power-on sequence (card enable)   │
+  │  rtl_fw    firmware download                 │
+  │  rtl_efuse efuse read (real MAC)             │
+  │  rtl_mac   MAC init + monitor RCR            │
+  │  rtl_bb    baseband/PHY init                 │
+  │  rtl_rf    RF init + channel (2.4/5 GHz)     │
+  │  rtl_cal   IQK/LCK calibration               │
+  │  rtl_rx    bulk-IN → 802.11 + radiotap        │
+  │  rtl_tx    802.11 + TX descriptor → bulk-OUT  │
+  │  rtl_ccmp  AES-CCM (WPA2 data crypto)         │
+  │  rtl_wpa   WPA2-PSK connect (auth/assoc/4-way)│
+  └────────────────────────────────────────────┘
         │
         ▼
-  Wireshark / Kismet / aircrack (via pcap)
+  Wireshark / Kismet / aircrack (pcap)   |   utun (internet client, WIP)
 ```
 
-## Roadmap (Meilensteine)
+## What works (verified on hardware: M2 Pro, macOS 26.6.2)
 
-- [x] **M0 — Fundament:** arm64, Homebrew, libusb 1.0.29 vorhanden. Projekt-Setup.
-- [x] **M1 — Sehen & Greifen:** Gerät `0bda:8812` enumeriert, Interface 0 geclaimt
-      (ohne Kext/SIP-Eingriff), Register-Zugriff steht. → `usbprobe`, `chipinfo`
-- [x] **M2 — Register & Power-On:** Register-R/W verifiziert; Power-On-Sequenz
-      (CARDEMU_TO_ACT) läuft, State-Machine aktiv. → `initchip`
-- [x] **M2b — efuse-Read:** physische efuse dekodiert, echte Hersteller-MAC
-      gelesen (`00:c0:ca:...`, OUI = ALFA Network). → `efuseinfo`
-- [x] **M2c — Firmware-Download:** 27 KB NIC-Firmware (v52.14) geladen,
-      Checksum OK, WINTINI_RDY gesetzt — Firmware laeuft. → `fwload`
-- [x] **M3 — MAC/BB/RF-Init + Kanal:** MAC-/BB-/RF-Tabellen (byte-identisch
-      zur Referenz) angewandt, Kanal/Band gesetzt. IQK/LCK portiert (optional).
-- [x] **M4 — RX/Monitor: FUNKTIONIERT.** Bulk-IN-Deaggregation → pcap+radiotap.
-      Verifiziert auf 2.4 GHz (Kanal 6) und 5 GHz (Kanal 100): echte Beacons,
-      Data-, ACK-, Block-ACK-Frames, per tcpdump dekodiert.
-- [x] **M5 — TX/Injection: FUNKTIONIERT.** TX-Deskriptor (40B + Pflicht-
-      Prüfsumme) über Bulk-OUT 0x02. Verifiziert: 30 Probe-Requests → 36 Probe-
-      Responses an unsere MAC von der FRITZ!Box. Moderate TX-Power (0x12), kein
-      PA-Risiko. Deauth etc. laufen über denselben Pfad. → `inject`, `rtl_tx`
-- [x] **M6 — Wireshark extcap:** `alfa-extcap` spricht das extcap-Protokoll
-      (Interfaces/DLT/Config/Capture). Verifiziert: 245 Frames live durch den
-      FIFO. Ins Wireshark-extcap-Verzeichnis kopieren → Adapter in der Liste.
-      Offen: brew-Formel.
-- [ ] **LED:** Steuerregister der AWUS036ACH-Variante identifizieren (`ledscan`),
-      dann LED bei Init an + Blinken bei Traffic verdrahten.
+- **Device bring-up:** claim device (no kext/SIP), register R/W, power-on,
+  efuse read (real ALFA MAC), firmware download (checksum OK, firmware running).
+- **MAC/BB/RF init + channel** on 2.4 and 5 GHz (tables byte-identical to the
+  Linux reference).
+- **Monitor mode:** captures real 802.11 traffic to pcap+radiotap. Verified on
+  channel 6 and channel 100 (beacons, data, ACK/Block-ACK), decoded by tcpdump.
+- **Packet injection:** verified via probe-request → probe-response to our MAC
+  from the AP. Deauth and other management frames use the same path. Moderate TX
+  power (index 0x12), no PA stress.
+- **Wireshark integration** via extcap (`alfa-extcap`), and a **Homebrew** formula.
+- **Status LED** (register `LEDCFG0`): on after init, blinks on traffic.
 
-### Verifizierter Hardware-Stand (auf M2 Pro, macOS 26.6.2)
+### Internet client (work in progress)
 
-- Chip antwortet nativ auf USB-Vendor-Requests aus Userspace, ohne Kext/SIP.
-- `SYS_CFG (0x00F0) = 0x04411137` → MP-Chip, TSMC, Cut-Version 1.
-- Interface-Claim erfolgreich, kein Kernel-Treiber im Weg.
-- **Power-On erfolgreich:** Power-Ready (0x04[17]=1) und MAC-on (0x04[8]=0)
-  beide durchgepollt → Chip-State-Machine reagiert auf unsere Writes.
-- MAC (0x0610) nach Power-On = `00:00:...` (Registerfile), echte MAC via efuse.
-- **efuse-Read erfolgreich:** MAC `00:c0:ca:bc:4e:fa` — OUI `00:c0:ca` = ALFA
-  Network Inc., bestätigt die korrekte Map-Dekodierung.
-- **Firmware-Download erfolgreich:** v52.14, 26998 Byte, Checksum OK,
-  WINTINI_RDY gesetzt → Firmware bootet nativ von macOS aus.
-- [ ] **M3 — Kanal/RF:** Kanal + Band + Bandbreite setzen (Register aus HAL).
-- [ ] **M4 — RX/Monitor:** Bulk-IN empfangen, RX-Deskriptor parsen, rohe
-      802.11-Frames + radiotap-Header ausgeben.
-- [ ] **M5 — TX/Injection:** rohe Frames mit TX-Deskriptor über Bulk-OUT senden.
-- [ ] **M6 — Wireshark extcap:** als Capture-Quelle in Wireshark einbinden.
+A userspace daemon (`alfa-netd`) that connects as a WPA2 station and bridges IP
+through a `utun` interface. Verified so far: WPA2-PSK 4-way handshake (validated
+against the IEEE 802.11i test vector and live), CCMP decrypt of real traffic,
+association, and DHCP. Data-path bring-up (routing/ping) is under active
+debugging. Note: because it uses `utun`, it appears as a tunnel, not as an
+Ethernet adapter in Network settings (that would require the entitlement-gated
+DriverKit path).
 
-## Lizenz & Herkunft
+## Tools
 
-Register-Definitionen, Power-On-/Init-Sequenzen, Tabellen (MAC/BB/RF), efuse-
-Dekodierung und die eingebettete Firmware sind **portiert aus** dem Linux-
-Kernel-Treiber <https://github.com/aircrack-ng/rtl8812au> (ursprünglich
-© Realtek Corporation, **GPL v2**). Dieses Projekt ist ein abgeleitetes Werk und
-steht daher ebenfalls unter **GPL v2** (siehe `LICENSE`). Der Linux-Treiber wird
-hier nicht mitverteilt, sondern nur als Portierungsreferenz genutzt.
+| Tool | Purpose |
+|------|---------|
+| `usbprobe`  | find/claim the device, dump endpoints |
+| `chipinfo`  | read/decode chip version |
+| `efuseinfo` | read efuse → real MAC |
+| `fwload`    | download firmware |
+| `monitor`   | monitor-mode capture to pcap |
+| `inject`    | packet injection (probe-request test) |
+| `scan`      | scan 2.4/5 GHz for networks |
+| `alfa-extcap` | Wireshark extcap capture source |
+| `connect`   | WPA2-PSK connect + handshake test |
+| `alfa-netd` | internet-client daemon (WIP, needs sudo) |
 
-Kein Kext, kein DriverKit, keine Anthropic-/Apple-Zugehörigkeit — reine
-Userspace-USB-Implementierung über libusb.
-
-## Bauen & Nutzen
+## Build & use
 
 ```bash
-make                       # baut alle Tools (arm64, gegen libusb)
-./monitor 6 15 out.pcap    # Monitor Mode: Kanal 6, 15s -> pcap (Wireshark/tshark)
-./inject 6 30              # Injection: 30 Probe-Requests auf Kanal 6
-./ledscan                  # LED-Diagnose
+make                       # builds all tools (arm64, against libusb)
+./monitor 6 15 out.pcap    # monitor mode: channel 6, 15s -> pcap (Wireshark/tshark)
+./inject 6 30              # injection: 30 probe requests on channel 6
+./scan                     # list nearby networks
 ```
 
-## Installation via Homebrew
+## Install via Homebrew
 
 ```bash
 brew install --HEAD ./Formula/rtl8812au-macos.rb
-# oder aus einem Tap:  brew install --HEAD janlueders/tap/rtl8812au-macos
+# or from a tap:  brew install --HEAD janlueders/tap/rtl8812au-macos
 ```
 
-Danach `alfa-monitor`, `alfa-inject`, `alfa-usbprobe`, `alfa-chipinfo`,
-`alfa-extcap`. Fuer Wireshark den extcap-Link setzen (siehe `brew` caveats):
+This installs `alfa-monitor`, `alfa-inject`, `alfa-usbprobe`, `alfa-chipinfo`,
+and `alfa-extcap`. For Wireshark, link the extcap helper (see the `brew` caveats):
 
 ```bash
 mkdir -p ~/.config/wireshark/extcap
 ln -sf "$(brew --prefix)/bin/alfa-extcap" ~/.config/wireshark/extcap/alfa-extcap
 ```
 
-## Ehrliche Einordnung
+## License & origin
 
-Das ist ein echtes Reverse-Engineering-Projekt (Logik aus dem Linux-Quelltext
-nachbauen), kein Nachmittagsprojekt. Aber jeder Meilenstein ist einzeln testbar,
-und M1 läuft sofort. Nichts daran ist auf Apple Silicon blockiert — es ist reine
-Userspace-USB-Arbeit.
+Register definitions, power-on/init sequences, tables (MAC/BB/RF), efuse decoding,
+and the embedded firmware are **ported from** the Linux kernel driver
+<https://github.com/aircrack-ng/rtl8812au> (originally © Realtek Corporation,
+**GPL v2**). This project is a derivative work and is therefore also licensed under
+**GPL v2** (see `LICENSE`). The Linux driver itself is not redistributed here; it
+is used only as a porting reference.
+
+No kext, no DriverKit, no Anthropic/Apple affiliation — pure userspace USB over
+libusb.
+
+## Honest note
+
+This is a real reverse-engineering effort (reimplementing chip logic from the
+Linux source), not a weekend project. But every milestone is independently
+testable, and nothing about it is blocked on Apple Silicon — it is all userspace
+USB work.
