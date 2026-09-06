@@ -41,9 +41,11 @@ Assoziierung, WPA2-Supplicant (EAPOL-4-Way), Schlüssel setzen, 802.11↔IP übe
       IEEE-802.11i-Testvektor verifiziert. **End-zu-End auf echter Hardware
       bestaetigt:** msg3 von der FRITZ!Box empfangen (nur bei korrektem PSK) →
       PMK/PTK/MIC korrekt, verschluesselter Link ausgehandelt. Passwort via getpass.
-- [x] **IE4 — CCMP-Krypto:** AES-CCM (Software) + RFC3394 Key-Unwrap. CCM-Kern
-      gegen NIST SP 800-38C verifiziert (PASS). → `rtl_ccmp`. 802.11-Rahmung wird
-      live in IE5 bestaetigt.
+- [x] **IE4 — CCMP-Krypto:** AES-CCM + RFC3394 Key-Unwrap. CCM-Kern gegen NIST
+      SP 800-38C (PASS) UND **live gegen echten Verkehr bestaetigt**: GTK aus msg3
+      ausgepackt, echtes Broadcast-Frame der FRITZ!Box entschluesselt (0 Fehler).
+      Zwei gefixte Fallstricke: 4-Byte-FCS (RCR_APPFCS) + Protected-Bit in der AAD
+      nicht maskieren. → `rtl_ccmp`, verifiziert via `connect`.
 - [ ] **IE5 — utun-Bridge:** utun anlegen, IP ↔ 802.11-Data, ARP/DHCP-Client.
 - [ ] **IE6 — Daemon + brew:** launchd-Daemon, `brew`-Formel, Auto-Reconnect.
 - [ ] **IE7 — WPA3 (SAE):** Dragonfly-Handshake (EC-Krypto) fuer WPA3-Personal
