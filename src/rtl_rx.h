@@ -32,4 +32,9 @@ long rtl_rx_capture(libusb_device_handle *h, FILE *f, int seconds, int verbose);
  * TX/RX (injizieren, dann kurz lauschen). Gibt geschriebene Frames zurueck. */
 long rtl_rx_pump(libusb_device_handle *h, FILE *f, int ms);
 
+/* Endlos-Capture (fuer Wireshark-extcap): schreibt Frames nach f, bis ein
+ * Schreibfehler auftritt (FIFO von Wireshark geschlossen). SIGPIPE vorher
+ * ignorieren. Gibt geschriebene Frames zurueck. */
+long rtl_rx_stream(libusb_device_handle *h, FILE *f);
+
 #endif /* RTL_RX_H */

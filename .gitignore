@@ -17,3 +17,5 @@ cap5g.pcap
 *.pcap
 inject
 inject.pcap
+ledscan
+alfa-extcap

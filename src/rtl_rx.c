@@ -64,6 +64,25 @@ static long parse_bulk(const uint8_t *buf, int total, FILE *f) {
     return n;
 }
 
+long rtl_rx_stream(libusb_device_handle *h, FILE *f) {
+    uint8_t *buf = malloc(RX_BUF_SIZE);
+    if (!buf) return -1;
+    long frames = 0;
+    while (1) {
+        int got = 0;
+        int rc = libusb_bulk_transfer(h, RTL_RX_EP, buf, RX_BUF_SIZE, &got, 300);
+        if (rc == 0 && got > RTL_RXDESC_SIZE) {
+            frames += parse_bulk(buf, got, f);
+            fflush(f);
+            if (ferror(f)) break;   /* FIFO geschlossen -> Ende */
+        } else if (rc != 0 && rc != LIBUSB_ERROR_TIMEOUT) {
+            break;                  /* Geraet weg */
+        }
+    }
+    free(buf);
+    return frames;
+}
+
 long rtl_rx_pump(libusb_device_handle *h, FILE *f, int ms) {
     uint8_t *buf = malloc(RX_BUF_SIZE);
     if (!buf) return -1;

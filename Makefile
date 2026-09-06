@@ -19,7 +19,7 @@ CORE := src/rtl_usb.c src/rtl_init.c src/rtl_fw.c src/fw_8812a_nic.c \
         src/rtl_efuse.c src/rtl_led.c src/rtl_mac.c src/rtl_bb.c \
         src/rtl_rf.c src/rtl_cal.c
 
-BINS := usbprobe chipinfo initchip efuseinfo fwload ledtest stagetest monitor inject
+BINS := usbprobe chipinfo initchip efuseinfo fwload ledtest stagetest monitor inject ledscan alfa-extcap
 
 all: $(BINS)
 
@@ -54,3 +54,9 @@ clean:
 	rm -f $(BINS)
 
 .PHONY: all clean
+
+ledscan: src/ledscan.c src/rtl_hal.c src/rtl_rx.c $(CORE)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+alfa-extcap: src/alfa_extcap.c src/rtl_hal.c src/rtl_rx.c $(CORE)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)

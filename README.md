@@ -66,8 +66,12 @@ macOS bringt keinen RTL8812AU-Treiber mit → das Gerät ist frei und greifbar.
       Prüfsumme) über Bulk-OUT 0x02. Verifiziert: 30 Probe-Requests → 36 Probe-
       Responses an unsere MAC von der FRITZ!Box. Moderate TX-Power (0x12), kein
       PA-Risiko. Deauth etc. laufen über denselben Pfad. → `inject`, `rtl_tx`
-- [ ] **M6 — Wireshark extcap + brew:** als Live-Capture-Quelle einbinden.
-- [ ] **LED:** GPIO/Pin fuer AWUS036ACH-Variante klaeren (LEDCFG greift noch nicht).
+- [x] **M6 — Wireshark extcap:** `alfa-extcap` spricht das extcap-Protokoll
+      (Interfaces/DLT/Config/Capture). Verifiziert: 245 Frames live durch den
+      FIFO. Ins Wireshark-extcap-Verzeichnis kopieren → Adapter in der Liste.
+      Offen: brew-Formel.
+- [ ] **LED:** Steuerregister der AWUS036ACH-Variante identifizieren (`ledscan`),
+      dann LED bei Init an + Blinken bei Traffic verdrahten.
 
 ### Verifizierter Hardware-Stand (auf M2 Pro, macOS 26.6.2)
 
