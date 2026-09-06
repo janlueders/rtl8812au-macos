@@ -108,7 +108,12 @@ static int send_l3(libusb_device_handle *h, const uint8_t dst_mac[6],
     uint8_t frame[1700]; int flen = 0;
     rtl_ccmp_encrypt_frame(K.tk, hdr, 24, body, p, tx_pn++, frame, &flen);
     /* QSLT_VO auf EP 0x02 (High-Queue) — derselbe zuverlaessige Pfad wie EAPOL. */
-    return rtl_tx_inject(h, frame, flen, RTL_RATE_6M, RTL_QSLT_VO, RTL_TX_EP_MGMT);
+    /* QSLT_BE: this is what worked in the very first successful test (clean
+     * DHCP OFFER+ACK). Every run since switching this to QSLT_VO has failed
+     * to get a DHCP reply at all, even though our RX/decrypt path is proven
+     * healthy. Unlike EAPOL (unicast, hardware-ACKed, retried automatically),
+     * these are unacked broadcasts -- reverting to the known-good queue. */
+    return rtl_tx_inject(h, frame, flen, RTL_RATE_6M, RTL_QSLT_BE, RTL_TX_EP_MGMT);
 }
 
 /* ---- IPv4/UDP-Pruefsumme ---- */
@@ -143,7 +148,12 @@ static int dhcp_build(uint8_t *out, uint8_t msgtype, const uint8_t *xid,
     uint8_t bp[600]; memset(bp, 0, sizeof(bp)); int p = 0;
     bp[0]=1; bp[1]=1; bp[2]=6; bp[3]=0; p=4;      /* op,htype,hlen,hops */
     memcpy(bp+4, xid, 4); p=8;                     /* xid */
-    bp[10]=0x80; bp[11]=0x00;                       /* flags: Broadcast (OFFER/ACK per Broadcast) */
+    /* flags=0 (unicast reply): we receive by MAC match at the 802.11 layer
+     * regardless of whether an IP is configured yet, so we don't need the
+     * broadcast accommodation real OS DHCP stacks sometimes need. Setting the
+     * broadcast flag is what changed right when replies stopped arriving at
+     * all -- reverting to normal-client behavior (flags=0). */
+    bp[10]=0x00; bp[11]=0x00;
     p=28; memcpy(bp+28, K.sa, 6);                  /* chaddr */
     p=236; bp[236]=0x63; bp[237]=0x82; bp[238]=0x53; bp[239]=0x63; p=240; /* magic */
     bp[p++]=53; bp[p++]=1; bp[p++]=msgtype;        /* DHCP msg type */
