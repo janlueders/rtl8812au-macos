@@ -257,11 +257,14 @@ int main(int argc, char **argv) {
         uint8_t kd[256];
         if (rtl_aes_unwrap(kek, s.m3_kd, s.m3_kdlen, kd) == 0) {
             int plen = s.m3_kdlen - 8, i = 0, have = 0;
+            /* Key Data mischt IEs (z.B. RSN 0x30) und KDEs (0xDD) — nicht abbrechen,
+             * sondern jedes Element ueberspringen und nur die GTK-KDE herausziehen. */
             while (i + 2 <= plen) {
                 int id = kd[i], l = kd[i+1];
-                if (id != 0xDD || i + 2 + l > plen) break;
-                if (l >= 6 && kd[i+2]==0x00 && kd[i+3]==0x0f && kd[i+4]==0xac && kd[i+5]==0x01) {
-                    memcpy(g_gtk, kd + i + 8, 16); have = 1;   /* GTK KDE: OUI+type+keyid+rsvd, dann GTK */
+                if (l == 0 || i + 2 + l > plen) break;    /* Ende/Padding */
+                if (id == 0xDD && l >= 6 &&
+                    kd[i+2]==0x00 && kd[i+3]==0x0f && kd[i+4]==0xac && kd[i+5]==0x01) {
+                    memcpy(g_gtk, kd + i + 8, 16); have = 1; /* GTK KDE: OUI+type+keyid+rsvd, dann GTK */
                 }
                 i += 2 + l;
             }
