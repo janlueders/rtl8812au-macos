@@ -37,4 +37,9 @@ long rtl_rx_pump(libusb_device_handle *h, FILE *f, int ms);
  * ignorieren. Gibt geschriebene Frames zurueck. */
 long rtl_rx_stream(libusb_device_handle *h, FILE *f);
 
+/* Callback-basiertes Pollen: fuer 'ms' Millisekunden Frames lesen und je
+ * dekodiertem 802.11-Frame cb(frame, len, ctx) aufrufen. Fuer Scan/Analyse. */
+typedef void (*rtl_frame_cb)(const uint8_t *frame, uint32_t len, void *ctx);
+long rtl_rx_poll(libusb_device_handle *h, int ms, rtl_frame_cb cb, void *ctx);
+
 #endif /* RTL_RX_H */

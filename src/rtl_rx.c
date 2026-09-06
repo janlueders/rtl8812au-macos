@@ -99,6 +99,35 @@ long rtl_rx_stream(libusb_device_handle *h, FILE *f) {
     return frames;
 }
 
+long rtl_rx_poll(libusb_device_handle *h, int ms, rtl_frame_cb cb, void *ctx) {
+    uint8_t *buf = malloc(RX_BUF_SIZE);
+    if (!buf) return -1;
+    long frames = 0;
+    struct timespec t0; clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (;;) {
+        struct timespec t1; clock_gettime(CLOCK_MONOTONIC, &t1);
+        long el = (t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
+        if (el >= ms) break;
+        int got = 0;
+        int rc = libusb_bulk_transfer(h, RTL_RX_EP, buf, RX_BUF_SIZE, &got, 50);
+        if (rc != 0 || got <= RTL_RXDESC_SIZE) continue;
+        const uint8_t *pbuf = buf; int tl = got;
+        while (tl > RTL_RXDESC_SIZE) {
+            uint32_t d0 = le32(pbuf), d2 = le32(pbuf + 8);
+            uint32_t pkt_len = d0 & 0x3FFF, drv = ((d0 >> 16) & 0xF) * 8, sh = (d0 >> 24) & 3;
+            uint32_t rpt = (d2 >> 28) & 1;
+            uint32_t off = RTL_RXDESC_SIZE + drv + sh + pkt_len;
+            if (pkt_len == 0 || (int)off > tl) break;
+            if (!rpt) { cb(pbuf + RTL_RXDESC_SIZE + drv + sh, pkt_len, ctx); frames++; }
+            uint32_t adv = RND8(off);
+            if ((int)adv > tl) break;
+            pbuf += adv; tl -= adv;
+        }
+    }
+    free(buf);
+    return frames;
+}
+
 long rtl_rx_pump(libusb_device_handle *h, FILE *f, int ms) {
     uint8_t *buf = malloc(RX_BUF_SIZE);
     if (!buf) return -1;
