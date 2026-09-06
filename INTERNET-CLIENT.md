@@ -35,8 +35,8 @@ Assoziierung, WPA2-Supplicant (EAPOL-4-Way), Schlüssel setzen, 802.11↔IP übe
 ## Meilensteine
 
 - [x] **IE1 — Scan:** Netze finden (SSID/BSSID/Kanal/Verschlüsselung). → `scan`
-- [ ] **IE2 — Assoziierung:** Auth + Assoc-Request/Response mit dem Ziel-AP,
-      Managed-Mode-RCR (nur eigene + Broadcast), Kanal fest.
+- [x] **IE2 — Assoziierung:** Open-Auth + Assoc mit RSN-IE, Auto-ACK via
+      REG_MACID. Verifiziert: mit FRITZ!Box assoziiert, Status 0, AID=7. → `associate`
 - [ ] **IE3 — WPA2-Supplicant:** EAPOL-4-Way-Handshake (PMK aus PSK, PTK/GTK),
       minimal für WPA2-PSK/CCMP.
 - [ ] **IE4 — Schlüssel/Krypto:** CCMP-Keys in den Chip (HW) oder Software-CCMP.
