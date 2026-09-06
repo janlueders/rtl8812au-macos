@@ -91,12 +91,17 @@ macOS bringt keinen RTL8812AU-Treiber mit → das Gerät ist frei und greifbar.
 - [ ] **M5 — TX/Injection:** rohe Frames mit TX-Deskriptor über Bulk-OUT senden.
 - [ ] **M6 — Wireshark extcap:** als Capture-Quelle in Wireshark einbinden.
 
-## Referenz-Quelle
+## Lizenz & Herkunft
 
-Die RTL8812AU-Register-/Firmware-Sequenzen gibt es nur im Linux-Treiber (kein
-öffentliches Datenblatt). Wir portieren die **Logik** aus:
-<https://github.com/aircrack-ng/rtl8812au> — insbesondere `hal/`, `core/`, die
-`usb_ops`-Abstraktion und die Firmware unter `hal/rtl8812a/`.
+Register-Definitionen, Power-On-/Init-Sequenzen, Tabellen (MAC/BB/RF), efuse-
+Dekodierung und die eingebettete Firmware sind **portiert aus** dem Linux-
+Kernel-Treiber <https://github.com/aircrack-ng/rtl8812au> (ursprünglich
+© Realtek Corporation, **GPL v2**). Dieses Projekt ist ein abgeleitetes Werk und
+steht daher ebenfalls unter **GPL v2** (siehe `LICENSE`). Der Linux-Treiber wird
+hier nicht mitverteilt, sondern nur als Portierungsreferenz genutzt.
+
+Kein Kext, kein DriverKit, keine Anthropic-/Apple-Zugehörigkeit — reine
+Userspace-USB-Implementierung über libusb.
 
 ## Bauen & Nutzen
 
