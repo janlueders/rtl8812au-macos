@@ -124,18 +124,23 @@ static void dec_cb(const uint8_t *f, uint32_t len, void *v) {
     if (!bcast && !to_us) return;
     g_seen_prot++;
     const uint8_t *key = bcast ? g_gtk : g_tk;
-    int elen = (int)len - 4;                    /* RCR_APPFCS: 4-Byte-FCS am Ende entfernen */
     uint8_t out[2048]; int ol = 0;
-    if (elen > 24 && rtl_ccmp_decrypt_frame(key, f, elen, out, &ol) == 0 && ol >= 8 &&
-        out[0]==0xAA && out[1]==0xAA && out[2]==0x03) {
-        if (!g_dec_ok) {
-            g_dec_ok = 1;
-            printf("  CCMP-Entschluesselung OK (%s): LLC/SNAP EtherType %02x%02x, %d Byte Payload\n",
-                   bcast ? "Broadcast/GTK" : "Unicast/TK", out[6], out[7], ol - 8);
+    /* Mit und ohne 4-Byte-FCS versuchen (klaert zugleich, ob RCR_APPFCS greift). */
+    int lens[2] = { (int)len - 4, (int)len };
+    for (int k = 0; k < 2; k++) {
+        if (lens[k] <= 24) continue;
+        if (rtl_ccmp_decrypt_frame(key, f, lens[k], out, &ol) == 0 && ol >= 8 &&
+            out[0]==0xAA && out[1]==0xAA && out[2]==0x03) {
+            if (!g_dec_ok) {
+                g_dec_ok = 1;
+                printf("  CCMP OK (%s, %s): LLC/SNAP EtherType %02x%02x, %d Byte Payload\n",
+                       bcast ? "Broadcast/GTK" : "Unicast/TK",
+                       k == 0 ? "mit FCS" : "ohne FCS", out[6], out[7], ol - 8);
+            }
+            return;
         }
-    } else {
-        g_dec_fail++;
     }
+    g_dec_fail++;
 }
 
 /* Baut + sendet einen EAPOL-Key-Frame (msg2/msg4) als 802.11-Data-toDS. */

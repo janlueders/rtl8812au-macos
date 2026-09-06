@@ -134,7 +134,7 @@ static int ccmp_aad_nonce(const uint8_t *f, int hdrlen, int qos, int a4,
         if (stype & 0x0080) fc &= ~0x8000;   /* QoS -> Order maskieren */
     }
     fc &= ~0x0800; fc &= ~0x1000; fc &= ~0x2000; /* Retry, PwrMgmt, MoreData */
-    fc &= ~0x4000;                                /* Protected */
+    /* Protected-Bit NICHT maskieren: der AP (mac80211) laesst es in der AAD auf 1. */
 
     int p = 0;
     aad[p++] = fc & 0xff; aad[p++] = (fc >> 8) & 0xff;
