@@ -76,7 +76,8 @@ static int send_l3(libusb_device_handle *h, const uint8_t dst_mac[6],
 
     uint8_t frame[1700]; int flen = 0;
     rtl_ccmp_encrypt_frame(K.tk, hdr, 24, body, p, tx_pn++, frame, &flen);
-    return rtl_tx_inject(h, frame, flen, RTL_RATE_6M, RTL_QSLT_BE, RTL_TX_EP_MGMT);
+    /* QSLT_VO auf EP 0x02 (High-Queue) — derselbe zuverlaessige Pfad wie EAPOL. */
+    return rtl_tx_inject(h, frame, flen, RTL_RATE_6M, RTL_QSLT_VO, RTL_TX_EP_MGMT);
 }
 
 /* ---- IPv4/UDP-Pruefsumme ---- */
