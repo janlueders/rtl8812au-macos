@@ -96,7 +96,10 @@ int rtl_wpa_connect(libusb_device_handle *h, int channel,
     CCKeyDerivationPBKDF(kCCPBKDF2, psk, strlen(psk), (const uint8_t*)ssid, slen,
                          kCCPRFHmacAlgSHA1, 4096, pmk, 32);
 
-    if (rtl_hal_full_init(h, channel, 0, 0) != 0) return -1;
+    /* with_cal=1: run LCK/IQK. A reliable bidirectional data path (DHCP, TCP)
+     * needs clean TX/RX; without calibration frames are marginal and DISCOVER
+     * gets through only intermittently. */
+    if (rtl_hal_full_init(h, channel, 1, 0) != 0) return -1;
     rtl_reg_write(h, REG_MACID, w_sa, 6);
 
     /* Clear any stale association the AP may still hold for our MAC from a
