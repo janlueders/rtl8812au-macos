@@ -37,11 +37,14 @@ Assoziierung, WPA2-Supplicant (EAPOL-4-Way), Schlüssel setzen, 802.11↔IP übe
 - [x] **IE1 — Scan:** Netze finden (SSID/BSSID/Kanal/Verschlüsselung). → `scan`
 - [x] **IE2 — Assoziierung:** Open-Auth + Assoc mit RSN-IE, Auto-ACK via
       REG_MACID. Verifiziert: mit FRITZ!Box assoziiert, Status 0, AID=7. → `associate`
-- [ ] **IE3 — WPA2-Supplicant:** EAPOL-4-Way-Handshake (PMK aus PSK, PTK/GTK),
-      minimal für WPA2-PSK/CCMP.
+- [~] **IE3 — WPA2-Supplicant:** EAPOL-4-Way-Handshake gebaut (`connect`).
+      Krypto verifiziert (PBKDF2 = IEEE-802.11i-Testvektor, PASS). Passwort via
+      getpass (bleibt lokal). End-zu-End-Test mit echtem PSK durch den Nutzer offen.
 - [ ] **IE4 — Schlüssel/Krypto:** CCMP-Keys in den Chip (HW) oder Software-CCMP.
 - [ ] **IE5 — utun-Bridge:** utun anlegen, IP ↔ 802.11-Data, ARP/DHCP-Client.
 - [ ] **IE6 — Daemon + brew:** launchd-Daemon, `brew`-Formel, Auto-Reconnect.
+- [ ] **IE7 — WPA3 (SAE):** Dragonfly-Handshake (EC-Krypto) fuer WPA3-Personal
+      und WPA2/WPA3-Mixed-only-Netze. Eigener, groesserer Auth-Mechanismus.
 
 ## Ehrliche Einordnung
 

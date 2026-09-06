@@ -27,6 +27,7 @@
 /* QSEL (hal_com.h). */
 #define RTL_QSLT_MGNT 0x12
 #define RTL_QSLT_BE   0x00
+#define RTL_QSLT_VO   0x07
 
 /* Einen rohen 802.11-Frame injizieren. rate = RTL_RATE_*, qsel = RTL_QSLT_*,
  * ep = Bulk-OUT-Endpoint. Rueckgabe 0 ok, sonst libusb-Fehler. */
