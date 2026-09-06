@@ -98,11 +98,28 @@ Die RTL8812AU-Register-/Firmware-Sequenzen gibt es nur im Linux-Treiber (kein
 <https://github.com/aircrack-ng/rtl8812au> — insbesondere `hal/`, `core/`, die
 `usb_ops`-Abstraktion und die Firmware unter `hal/rtl8812a/`.
 
-## Bauen
+## Bauen & Nutzen
 
 ```bash
-make            # baut ./usbprobe
-./usbprobe      # Adapter einstecken, dann ausführen
+make                       # baut alle Tools (arm64, gegen libusb)
+./monitor 6 15 out.pcap    # Monitor Mode: Kanal 6, 15s -> pcap (Wireshark/tshark)
+./inject 6 30              # Injection: 30 Probe-Requests auf Kanal 6
+./ledscan                  # LED-Diagnose
+```
+
+## Installation via Homebrew
+
+```bash
+brew install --HEAD ./Formula/rtl8812au-macos.rb
+# oder aus einem Tap:  brew install --HEAD janlueders/tap/rtl8812au-macos
+```
+
+Danach `alfa-monitor`, `alfa-inject`, `alfa-usbprobe`, `alfa-chipinfo`,
+`alfa-extcap`. Fuer Wireshark den extcap-Link setzen (siehe `brew` caveats):
+
+```bash
+mkdir -p ~/.config/wireshark/extcap
+ln -sf "$(brew --prefix)/bin/alfa-extcap" ~/.config/wireshark/extcap/alfa-extcap
 ```
 
 ## Ehrliche Einordnung
