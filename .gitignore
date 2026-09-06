@@ -2,6 +2,7 @@
 usbprobe
 chipinfo
 initchip
+efuseinfo
 *.o
 
 # Linux-Treiber nur als Portierungs-Referenz, nicht ins Repo

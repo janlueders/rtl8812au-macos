@@ -15,7 +15,7 @@ endif
 CFLAGS  += -Wall -Wextra -O2 -arch arm64 $(LIBUSB_CFLAGS)
 LDFLAGS += $(LIBUSB_LIBS)
 
-BINS := usbprobe chipinfo initchip
+BINS := usbprobe chipinfo initchip efuseinfo
 
 all: $(BINS)
 
@@ -27,6 +27,9 @@ chipinfo: src/chipinfo.c src/rtl_usb.c src/rtl_usb.h
 
 initchip: src/initchip.c src/rtl_init.c src/rtl_usb.c src/rtl_usb.h
 	$(CC) $(CFLAGS) -o $@ src/initchip.c src/rtl_init.c src/rtl_usb.c $(LDFLAGS)
+
+efuseinfo: src/efuseinfo.c src/rtl_efuse.c src/rtl_init.c src/rtl_usb.c src/rtl_usb.h
+	$(CC) $(CFLAGS) -o $@ src/efuseinfo.c src/rtl_efuse.c src/rtl_init.c src/rtl_usb.c $(LDFLAGS)
 
 clean:
 	rm -f $(BINS)

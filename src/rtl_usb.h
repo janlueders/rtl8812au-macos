@@ -22,6 +22,12 @@
 /* Wichtige Register (aus include/hal_com_reg.h). */
 #define REG_SYS_CFG       0x00F0  /* 32-bit: Chip-Version/Vendor/Cut */
 #define REG_MACID         0x0610  /* 6 byte: MAC-Adresse (nach efuse-Autoload) */
+#define REG_EFUSE_CTRL    0x0030  /* 32-bit: efuse-Zugriff (data/addr/flag) */
+
+/* efuse (aus include/rtl8812a_hal.h, include/hal_pg.h). */
+#define EFUSE_MAP_LEN     512     /* logische Map-Groesse (Jaguar/8812) */
+#define EFUSE_PHYS_MAX    1024    /* physische Obergrenze fuer den Scan */
+#define EFUSE_MAC_OFFSET  0xD7    /* EEPROM_MAC_ADDR_8812AU: MAC in der Map */
 
 /* SYS_CFG-Bits. */
 #define SYS_CFG_RTL_ID          (1u << 23) /* 1=Test-Chip, 0=MP */
@@ -47,6 +53,11 @@ uint32_t rtl_read32(libusb_device_handle *h, uint16_t addr, int *rc);
 int rtl_write8 (libusb_device_handle *h, uint16_t addr, uint8_t  val);
 int rtl_write16(libusb_device_handle *h, uint16_t addr, uint16_t val);
 int rtl_write32(libusb_device_handle *h, uint16_t addr, uint32_t val);
+
+/* efuse: ein physisches Byte lesen bzw. die logische Map dekodieren.
+ * map muss EFUSE_MAP_LEN gross sein. Rueckgabe 0 ok, sonst libusb-Fehler. */
+int rtl_efuse_read_byte(libusb_device_handle *h, uint16_t addr, uint8_t *out);
+int rtl_efuse_read_map(libusb_device_handle *h, uint8_t *map, int maplen);
 
 /* Power-On (card enable): faehrt die aus dem Linux-HAL portierte
  * CARDEMU_TO_ACT-Sequenz. verbose!=0 druckt jeden Schritt.
