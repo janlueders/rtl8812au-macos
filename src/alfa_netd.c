@@ -428,7 +428,15 @@ int main(int argc, char **argv) {
         ifn, g_our_ip[0],g_our_ip[1],g_our_ip[2],g_our_ip[3], g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3]);
     printf("+ %s\n", cmd); system(cmd);
     if (want_default) {
-        snprintf(cmd,sizeof(cmd),"route -n change default -interface %s 2>/dev/null || route -n add default -interface %s", ifn, ifn);
+        /* utun is point-to-point: macOS resolves a default route through it via
+         * the configured PEER address (the ptp "destination" we just set via
+         * ifconfig, i.e. the gateway IP), not via "-interface <name>" -- that
+         * form is for broadcast-capable interfaces (Ethernet/Wi-Fi). Using
+         * "-interface" here silently produced a non-functional route: "not in
+         * table", 0 packets ever reached our utun read() loop. This is the
+         * same pattern every real VPN client (WireGuard, etc.) uses. */
+        snprintf(cmd,sizeof(cmd),"route -n change default %u.%u.%u.%u 2>/dev/null || route -n add default %u.%u.%u.%u",
+            g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3], g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3]);
         printf("+ %s\n", cmd); system(cmd);
         g_changed_default = 1;
         printf("  (Default-Route auf %s gebogen; wird bei Beenden auf %s zurueckgesetzt)\n",
