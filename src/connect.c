@@ -36,9 +36,10 @@ typedef struct {
     uint8_t m3_kd[256]; int m3_kdlen;   /* verschluesselte Key Data aus msg3 */
 } hs_t;
 
-/* CCMP-Live-Entschluesselungstest (Broadcast mit GTK). */
+/* CCMP-Live-Entschluesselungstest. */
 static uint8_t g_gtk[16];
-static int g_dec_ok;
+static uint8_t g_tk[16];
+static int g_dec_ok, g_seen_prot, g_dec_fail;
 
 static int parse_mac(const char *s, uint8_t *m) {
     return sscanf(s, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
@@ -109,20 +110,30 @@ static void cb(const uint8_t *f, uint32_t len, void *v) {
     }
 }
 
-/* RX-Callback fuer den CCMP-Test: Broadcast-Data-Frame mit GTK entschluesseln. */
+/* RX-Callback fuer den CCMP-Test: geschuetzte Data-Frames vom AP entschluesseln.
+ * Broadcast/Multicast -> GTK, Unicast an uns -> TK. */
 static void dec_cb(const uint8_t *f, uint32_t len, void *v) {
     (void)v;
-    if (g_dec_ok || len < 24) return;
+    if (len < 24) return;
     uint8_t fc0 = f[0], fc1 = f[1];
     if ((fc0 & 0x0C) != 0x08) return;          /* Data */
     if (!(fc1 & 0x40)) return;                  /* Protected */
-    if (!(f[4] & 0x01)) return;                 /* addr1 Multicast/Broadcast */
+    if (memcmp(f + 10, g_bssid, 6) != 0) return;/* vom AP (fromDS: addr2=BSSID) */
+    int bcast = (f[4] & 0x01);
+    int to_us = (memcmp(f + 4, g_sa, 6) == 0);
+    if (!bcast && !to_us) return;
+    g_seen_prot++;
+    const uint8_t *key = bcast ? g_gtk : g_tk;
     uint8_t out[2048]; int ol = 0;
-    if (rtl_ccmp_decrypt_frame(g_gtk, f, (int)len, out, &ol) == 0 && ol >= 8 &&
+    if (rtl_ccmp_decrypt_frame(key, f, (int)len, out, &ol) == 0 && ol >= 8 &&
         out[0]==0xAA && out[1]==0xAA && out[2]==0x03) {
-        g_dec_ok = 1;
-        printf("  CCMP-Entschluesselung OK: Broadcast-Frame -> LLC/SNAP EtherType %02x%02x, %d Byte Payload\n",
-               out[6], out[7], ol - 8);
+        if (!g_dec_ok) {
+            g_dec_ok = 1;
+            printf("  CCMP-Entschluesselung OK (%s): LLC/SNAP EtherType %02x%02x, %d Byte Payload\n",
+                   bcast ? "Broadcast/GTK" : "Unicast/TK", out[6], out[7], ol - 8);
+        }
+    } else {
+        g_dec_fail++;
     }
 }
 
@@ -237,6 +248,7 @@ int main(int argc, char **argv) {
     append_min_max(b,&bo,s.anonce,snonce,32);    /* min||max(ANonce,SNonce) */
     uint8_t ptk[48]; prf384(pmk, "Pairwise key expansion", b, bo, ptk);
     const uint8_t *kck = ptk;                    /* KCK = PTK[0:16] */
+    memcpy(g_tk, ptk + 32, 16);                  /* TK = PTK[32:48] fuer Unicast-CCMP */
 
     /* msg2: SNonce + MIC + RSN als key data */
     if (send_eapol(h, 0x010A, s.replay_m1, snonce, rsn, sizeof(rsn), kck) != 0)
@@ -269,10 +281,16 @@ int main(int argc, char **argv) {
                 i += 2 + l;
             }
             if (have) {
-                printf("GTK aus msg3 ausgepackt. Teste CCMP-Entschluesselung live ...\n");
-                for (int t = 0; t < 30 && !g_dec_ok; t++) rtl_rx_poll(h, 200, dec_cb, NULL);
-                if (g_dec_ok) printf("\n==> IE4 live bestaetigt: CCMP-Rahmung korrekt, echtes Frame entschluesselt.\n");
-                else printf("  (kein passendes Broadcast-Frame entschluesselt — evtl. wenig Multicast-Verkehr)\n");
+                printf("GTK aus msg3 ausgepackt. Teste CCMP-Entschluesselung live (~12s) ...\n");
+                for (int t = 0; t < 60 && !g_dec_ok; t++) rtl_rx_poll(h, 200, dec_cb, NULL);
+                printf("  Diagnose: geschuetzte Frames vom AP gesehen=%d, Entschluessel-Fehler=%d\n",
+                       g_seen_prot, g_dec_fail);
+                if (g_dec_ok)
+                    printf("\n==> IE4 live bestaetigt: CCMP-Rahmung korrekt, echtes Frame entschluesselt.\n");
+                else if (g_seen_prot == 0)
+                    printf("  Keine geschuetzten Frames vom AP empfangen (ruhiges Netz / evtl. deauthed).\n");
+                else
+                    printf("  Frames kamen an, aber Entschluesselung schlug fehl -> AAD/Nonce/GTK justieren.\n");
             } else printf("  Keine GTK-KDE in msg3 gefunden.\n");
         } else printf("  GTK-Unwrap fehlgeschlagen (KEK/Key-Data).\n");
     }
