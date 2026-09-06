@@ -11,6 +11,7 @@
 #include "rtl_ccmp.h"
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include <CommonCrypto/CommonCrypto.h>
 #include <CommonCrypto/CommonKeyDerivation.h>
 
@@ -97,6 +98,14 @@ int rtl_wpa_connect(libusb_device_handle *h, int channel,
 
     if (rtl_hal_full_init(h, channel, 0, 0) != 0) return -1;
     rtl_reg_write(h, REG_MACID, w_sa, 6);
+
+    /* Clear any stale association the AP may still hold for our MAC from a
+     * previous run: send a few deauth frames (reason 3). Unencrypted mgmt. */
+    { uint8_t da[26]={0xC0,0x00,0,0};
+      memcpy(da+4,w_bssid,6); memcpy(da+10,w_sa,6); memcpy(da+16,w_bssid,6);
+      da[22]=0; da[23]=0; da[24]=0x03; da[25]=0x00;  /* reason: STA leaving */
+      for (int i=0;i<3;i++){ rtl_tx_inject(h,da,26,RTL_RATE_6M,RTL_QSLT_MGNT,RTL_TX_EP_MGMT); usleep(20000); }
+      usleep(150000); }
 
     hs_t s; memset(&s, 0, sizeof(s));
 
