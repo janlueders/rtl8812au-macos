@@ -55,9 +55,14 @@ static volatile sig_atomic_t g_stop = 0;
 
 static void restore_routing(void) {
     char cmd[256];
-    if (g_changed_default && g_orig_gw[0]) {
+    if (g_changed_default) {
+        /* Always remove our utun default so no dead route lingers. */
         snprintf(cmd,sizeof(cmd),"route -n delete default -interface %s 2>/dev/null", g_ifn); system(cmd);
-        snprintf(cmd,sizeof(cmd),"route -n add default %s 2>/dev/null", g_orig_gw); system(cmd);
+        snprintf(cmd,sizeof(cmd),"route -n delete default 2>/dev/null"); system(cmd);
+        /* Restore the previous gateway if we had one (WiFi was on at start). */
+        if (g_orig_gw[0]) {
+            snprintf(cmd,sizeof(cmd),"route -n add default %s 2>/dev/null", g_orig_gw); system(cmd);
+        }
         g_changed_default = 0;
     }
 }
