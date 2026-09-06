@@ -61,6 +61,10 @@ static volatile sig_atomic_t g_stop = 0;
 static void restore_routing(void) {
     char cmd[256];
     if (g_changed_default) {
+        /* Undo the split-default routes (see the setup side for why they're
+         * split instead of a literal "default" route). */
+        system("route -n delete -net 0.0.0.0/1 2>/dev/null");
+        system("route -n delete -net 128.0.0.0/1 2>/dev/null");
         snprintf(cmd,sizeof(cmd),"route -n delete default -interface %s 2>/dev/null", g_ifn); system(cmd);
         snprintf(cmd,sizeof(cmd),"route -n delete default 2>/dev/null"); system(cmd);
         if (g_orig_gw[0]) {
@@ -435,8 +439,17 @@ int main(int argc, char **argv) {
          * "-interface" here silently produced a non-functional route: "not in
          * table", 0 packets ever reached our utun read() loop. This is the
          * same pattern every real VPN client (WireGuard, etc.) uses. */
-        snprintf(cmd,sizeof(cmd),"route -n change default %u.%u.%u.%u 2>/dev/null || route -n add default %u.%u.%u.%u",
-            g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3], g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3]);
+        /* Both the literal "default" route AND "-interface utun4" failed
+         * ("not in table", never actually installed -- utun_out stayed 0).
+         * Switching to the split-default trick every real macOS VPN client
+         * (WireGuard, Tailscale, etc.) uses: two /1 routes covering all of
+         * IPv4 via the ptp peer, avoiding macOS route(8)'s known quirks with
+         * the literal default entry on point-to-point interfaces. */
+        snprintf(cmd,sizeof(cmd),"route -n add -net 0.0.0.0/1 %u.%u.%u.%u",
+            g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3]);
+        printf("+ %s\n", cmd); system(cmd);
+        snprintf(cmd,sizeof(cmd),"route -n add -net 128.0.0.0/1 %u.%u.%u.%u",
+            g_gw_ip[0],g_gw_ip[1],g_gw_ip[2],g_gw_ip[3]);
         printf("+ %s\n", cmd); system(cmd);
         g_changed_default = 1;
         printf("  (Default-Route auf %s gebogen; wird bei Beenden auf %s zurueckgesetzt)\n",
