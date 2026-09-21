@@ -9,6 +9,7 @@
 #include "rtl_rx.h"
 #include "rtl_tx.h"
 #include "rtl_ccmp.h"
+#include "rtl_txpwr.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -101,14 +102,88 @@ int rtl_wpa_connect(libusb_device_handle *h, int channel,
      * gets through only intermittently. */
     if (rtl_hal_full_init(h, channel, 1, 0) != 0) return -1;
     rtl_reg_write(h, REG_MACID, w_sa, 6);
+    rtl_reg_write(h, 0x0618, w_bssid, 6);   /* REG_BSSID -- moved earlier: the
+        * new station RCR below requires RCR_CBSSID_DATA/BCN (BSSID match),
+        * which needs REG_BSSID configured BEFORE that RCR takes effect, not
+        * after the handshake (its previous position, now redundant). Setting
+        * it this early is harmless: it was already our own AP's BSSID from
+        * the function's bssid[] parameter, known from the start. */
+    { uint8_t msr = rtl_read8(h, 0x0102, NULL);          /* MSR = REG_CR+2 */
+      rtl_write8(h, 0x0102, (uint8_t)((msr & 0xFC) | 0x02)); }
+    /* MSR (Media Status, port0 network type) -- also moved earlier, alongside
+     * REG_BSSID, same reasoning: Auth/Assoc now arrive fine (BSSID fix alone
+     * was enough for those), but EAPOL msg1 still doesn't -- testing whether
+     * FORCEACK-driven hardware auto-ACK actually requires MSR=STATION to be
+     * engaged (not just the RCR bit), rather than staying in the NOLINK state
+     * that rtl_mac_set_monitor left it in during rtl_hal_full_init. Single
+     * variable again: only this one register moved, nothing else touched. */
 
-    /* Clear any stale association the AP may still hold for our MAC from a
-     * previous run: send a few deauth frames (reason 3). Unencrypted mgmt. */
-    { uint8_t da[26]={0xC0,0x00,0,0};
-      memcpy(da+4,w_bssid,6); memcpy(da+10,w_sa,6); memcpy(da+16,w_bssid,6);
-      da[22]=0; da[23]=0; da[24]=0x03; da[25]=0x00;  /* reason: STA leaving */
-      for (int i=0;i<3;i++){ rtl_tx_inject(h,da,26,RTL_RATE_6M,RTL_QSLT_MGNT,RTL_TX_EP_MGMT); usleep(20000); }
-      usleep(150000); }
+    /* Single, isolated fix (verified one variable at a time, per the incident
+     * on 2026-09-06 where stacking several RCR changes at once caused two
+     * separate regressions before this was untangled):
+     *
+     * rtl_hal_full_init() always ends by applying the promiscuous MONITOR
+     * RCR (rtl_mac_set_monitor), which has no FORCEACK and no RCR_ADF/RCR_ACF
+     * (accept-data/accept-control frame-type gates). Monitor mode is
+     * correctly "receive everything, ACK nothing" for passive sniffing --
+     * but for an actual client connection the chip must auto-ACK unicast
+     * frames, or the AP retransmits every frame per 802.11 retry rules and
+     * we receive the same payload multiple times (observed live as
+     * "(DUP!)" duplicate ICMP replies, until the AP's retry budget for that
+     * frame is exhausted and it gives up delivering it at all).
+     *
+     * Byte-for-byte audit against the reference driver's actual station RCR
+     * (_InitWMACSetting_8812A in hal/rtl8812a/usb/usb_halinit.c) found this
+     * value does NOT match the reference and diverges in two ways:
+     *
+     *   - RCR_ADF(11)/RCR_ACF(12) were added here on the (now-disproven)
+     *     assumption that "accept Data/Control frame type" gates were needed
+     *     for EAPOL to arrive. The reference driver's default RCR has NEITHER
+     *     bit set, yet receives Data frames (EAPOL included) fine -- the real
+     *     fix for "keine msg1/msg3" was the REG_BSSID/MSR-early ordering fix
+     *     made earlier in this function, not these bits. Worse, RCR_ACF
+     *     accepts every Control-type frame (RTS/CTS/ACK) from EVERY station
+     *     in radio range, not just our AP -- on a busy 2.4GHz channel this
+     *     can flood our single-threaded RX poll loop with irrelevant traffic,
+     *     a plausible cause of the multi-second RX gaps observed even after
+     *     the duplicate-delivery fix (alfa_netd.c on_frame dedup).
+     *   - RCR_HTC_LOC_CTRL(14), RCR_APP_ICV(29), RCR_APP_MIC(30) are set by
+     *     the reference but were missing here.
+     *
+     * Reference value (RTL8812A_RX_PACKET_INCLUDE_CRC=0, so no ACRC32; the
+     * FCS-append config is on, so RCR_APPFCS is included) fully explained:
+     *   FORCEACK(26)             -- hardware auto-ACKs unicast frames
+     *   RCR_AMF(13)              -- accept Management (Auth/Assoc/Beacon)
+     *   RCR_APM(1)               -- accept exact unicast address match
+     *   RCR_AM(2), RCR_AB(3)     -- accept multicast/broadcast (GTK traffic)
+     *   RCR_CBSSID_DATA(6/7)     -- BSSID must match (we've set REG_BSSID)
+     *   RCR_HTC_LOC_CTRL(14)     -- HT Control field direction (reference default)
+     *   RCR_APP_PHYST_RXFF(28)   -- keep PHY status prefix (RX parsing needs it)
+     *   RCR_APP_ICV(29), RCR_APP_MIC(30) -- reference default retention bits
+     *   RCR_APPFCS(31)           -- append the 4-byte FCS trailer; our RX
+     *                               parsing (rtl_rx.c, alfa_netd.c on_frame)
+     *                               universally strips a trailing 4 bytes
+     *                               assuming FCS is present -- without this
+     *                               bit that strip corrupts every CCMP MIC
+     *                               instead (confirmed live: 100% decfail). */
+    {
+        uint32_t rcr = (1u<<26) | (1u<<13) |
+                       (1u<<1)  | (1u<<2)  | (1u<<3)  |
+                       (1u<<6)  | (1u<<7)  | (1u<<14) |
+                       (1u<<28) | (1u<<29) | (1u<<30) | (1u<<31);
+        rtl_write32(h, 0x0608, rcr);   /* REG_RCR */
+        if (verbose) printf("[wpa] station RCR (reference-matched, no ADF/ACF) = 0x%08x\n", rcr);
+    }
+
+    /* No pre-emptive deauth here (deliberately removed). A normal Auth
+     * request already supersedes any stale AP-side association state for our
+     * MAC -- deauth was never actually required for that. Confirmed live via
+     * the FRITZ!Box's own event log ("WLAN-Geraet wurde abgemeldet", AP-
+     * initiated) that repeated deauth-heavy reconnect cycles during iterative
+     * testing look like deauth-flood behavior to the AP, which then defends
+     * against this station. Deauth frames must stay out of the normal
+     * connect path; inject.c/associate.c (explicit attack/test tools) are
+     * the only appropriate place for deliberate deauth. */
 
     hs_t s; memset(&s, 0, sizeof(s));
 
@@ -171,6 +246,8 @@ int rtl_wpa_connect(libusb_device_handle *h, int channel,
     { uint16_t rrsr = 0x0F /*CCK 1/2/5.5/11*/ | 0x10 /*6M*/ | 0x40 /*12M*/ | 0x100 /*24M*/;
       rtl_write16(h, 0x0440, rrsr);
       rtl_write8(h, 0x0442, (uint8_t)(rtl_read8(h, 0x0442, NULL) & 0xf0)); }
+
+    rtl_txpwr_readback(h, "end of rtl_wpa_connect");
 
     if(verbose)printf("[wpa] connected, TK set, GTK %s, station mode (auto-ACK on).\n",
                       k->have_gtk?"ok":"missing");

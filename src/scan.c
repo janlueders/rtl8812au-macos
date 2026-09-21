@@ -57,12 +57,18 @@ int main(int argc, char **argv) {
     int rc = rtl_open_first(ctx, &h, &pid, &claimed);
     if (rc || !h) { printf("Kein RTL8812AU gefunden.\n"); libusb_exit(ctx); return 2; }
     printf("Geraet 0bda:%04x. Inbetriebnahme ...\n", pid);
+
+    rtl_rx_bind(ctx, rtl_chip_probe(pid));   /* asynchronen RX-Pfad aktivieren */
     if (rtl_hal_full_init(h, 1, 0, 0) != 0) { printf("Init fehlgeschlagen.\n"); goto done; }
 
     scan_ctx s; memset(&s, 0, sizeof(s));
     printf("Scanne %zu Kanaele (%d ms/Kanal) ...\n", sizeof(chans)/sizeof(int), dwell);
     for (size_t i = 0; i < sizeof(chans)/sizeof(int); i++) {
         s.cur_ch = chans[i];
+        /* rtl_rf_set_channel() direkt statt rtl_hal_set_channel(): scan ist
+         * reiner RX-Betrieb (kein TX), die kanalabhaengige TX-Power-Nachfuehrung
+         * von rtl_hal_set_channel() waere hier wirkungslos. Fuer spaetere TX-
+         * faehige Tools mit Channel-Hopping ist rtl_hal_set_channel() gedacht. */
         if (rtl_rf_set_channel(h, chans[i], 0) != 0) continue;
         rtl_rx_poll(h, dwell, scan_cb, &s);
         printf("\r  Kanal %3d  gefunden: %d Netze ", chans[i], s.count); fflush(stdout);
@@ -78,6 +84,7 @@ int main(int argc, char **argv) {
     printf("\n%d Netze gefunden.\n", s.count);
 
 done:
+    rtl_rx_unbind();
     if (claimed) libusb_release_interface(h, 0);
     libusb_close(h); libusb_exit(ctx);
     return 0;

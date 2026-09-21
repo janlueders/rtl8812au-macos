@@ -81,6 +81,7 @@ typedef unsigned short u16;
 #define rA_RFE_Inv_Jaguar       0xcb4
 #define rB_RFE_Inv_Jaguar       0xeb4
 #define bMask_RFEInv_Jaguar     0x3ff00000
+#define r_ANTSEL_SW_Jaguar      0x900
 
 /* --- MAC registers --- */
 #define REG_RF_CTRL             0x001f
@@ -1078,18 +1079,80 @@ static u32 array_mp_8812a_radiob[] = {
 #define COND_ENDIF  3
 
 /*
- * Hardware descriptors for check_positive(). Default values for a
- * generic 8812AU without an external frontend module (AWUS036ACH): board_type=0,
- * no LNA/PA types. -> only the ELSE branches take effect.
- * (No table condition selects by cut version/package, so
- *  cut_version/package_type play no role for the 8812AU RF tables.)
+ * Hardware descriptors for check_positive(). NOT hardcoded: the AWUS036ACH
+ * was wrongly assumed here to have no external frontend module. Its own
+ * efuse says otherwise (hal_pg.h offsets, confirmed by reading a real unit):
+ *   0xBC PAType_2G/5G = 0x33 -> external PA on BOTH bands (bit4+5 -> 2G,
+ *        bit0+1 -> 5G, same byte for both per hal_ReadPAType_8812A)
+ *   0xBD/0xBF LNAType_2G/5G = 0x88 -> external LNA on both bands
+ * detect_frontend() below reads these at RF-init time and fills the
+ * variables that used to be hardcoded to "none of the above" -- which meant
+ * every PA/LNA-conditional row in the (fully ported, byte-for-byte-matching
+ * the reference) RF/BB tables was silently skipped, and the chip transmitted
+ * through its own weak internal driver stage only, never through the actual
+ * external PA this adapter is built around.
+ * cut_version/package_type still play no role for the 8812AU RF tables (no
+ * condition selects on them), so those stay fixed.
  */
-static const u32 g_board_type   = 0;
+static u32 g_board_type   = 0;
 static const u32 g_cut_version  = 0;
 static const u32 g_package_type = 0;
 static const u32 g_support_interface = 0x01; /* USB (irrelevant for the tables) */
 static const u32 g_support_platform  = 0x08; /* ODM_CE (irrelevant) */
-static const u32 g_type_glna = 0, g_type_gpa = 0, g_type_alna = 0, g_type_apa = 0;
+static u32 g_type_glna = 0, g_type_gpa = 0, g_type_alna = 0, g_type_apa = 0;
+static int g_rfe_type = 0;
+
+/* ODM_BOARD_* bit positions (hal/phydm/phydm_pre_define.h), matching the
+ * _GLNA/_GPA/_ALNA/_APA/_BT/_NGFF/_TRSWT bit extraction in check_positive(). */
+#define ODM_BOARD_EXT_PA      (1u<<3)
+#define ODM_BOARD_EXT_LNA     (1u<<4)
+#define ODM_BOARD_EXT_TRSW    (1u<<5)
+#define ODM_BOARD_EXT_PA_5G   (1u<<6)
+#define ODM_BOARD_EXT_LNA_5G  (1u<<7)
+
+/* hal_ReadPAType_8812A / hal_pg.h: PA/LNA type bytes and RFE-option byte. */
+#define EFUSE_PA_TYPE_8812AU     0xBC   /* bit4+5=ext PA 2G, bit0+1=ext PA 5G */
+#define EFUSE_LNA_TYPE_2G_8812AU 0xBD   /* bit7+3=ext LNA 2G */
+#define EFUSE_LNA_TYPE_5G_8812AU 0xBF   /* bit7+3=ext LNA 5G */
+#define EFUSE_RFE_OPTION_8812    0xCA   /* & 0x3F = rfe_type, selects the RFE pinmux case */
+
+/* Read this exact unit's real frontend config from efuse (once, at RF-init)
+ * instead of assuming a bare reference board. Best-effort: on any efuse
+ * read error, everything stays at the old (safe, "no external frontend")
+ * default rather than guessing. */
+static void detect_frontend(libusb_device_handle *h, int verbose)
+{
+    uint8_t map[EFUSE_MAP_LEN];
+    if (rtl_efuse_read_map(h, map, EFUSE_MAP_LEN) != 0) return;
+
+    uint8_t pa_type_2g = map[EFUSE_PA_TYPE_8812AU];
+    uint8_t pa_type_5g = pa_type_2g; /* same efuse byte for both bands */
+    uint8_t lna_type_2g = map[EFUSE_LNA_TYPE_2G_8812AU];
+    uint8_t lna_type_5g = map[EFUSE_LNA_TYPE_5G_8812AU];
+    uint8_t rfe_option = map[EFUSE_RFE_OPTION_8812];
+
+    if (pa_type_2g != 0xFF) g_type_gpa = pa_type_2g;
+    if (pa_type_5g != 0xFF) g_type_apa = pa_type_5g;
+    if (lna_type_2g != 0xFF) g_type_glna = lna_type_2g;
+    if (lna_type_5g != 0xFF) g_type_alna = lna_type_5g;
+
+    int ext_pa_2g  = (pa_type_2g  != 0xFF) && ((pa_type_2g  & 0x30) == 0x30);
+    int ext_pa_5g  = (pa_type_5g  != 0xFF) && ((pa_type_5g  & 0x03) == 0x03);
+    int ext_lna_2g = (lna_type_2g != 0xFF) && ((lna_type_2g & 0x88) == 0x88);
+    int ext_lna_5g = (lna_type_5g != 0xFF) && ((lna_type_5g & 0x88) == 0x88);
+
+    g_board_type = (ext_pa_2g  ? ODM_BOARD_EXT_PA     : 0) |
+                   (ext_lna_2g ? ODM_BOARD_EXT_LNA    : 0) |
+                   (ext_pa_5g  ? ODM_BOARD_EXT_PA_5G  : 0) |
+                   (ext_lna_5g ? ODM_BOARD_EXT_LNA_5G : 0);
+
+    if (rfe_option != 0xFF) g_rfe_type = rfe_option & 0x3F;
+
+    printf("[rf] Frontend (Efuse): PA 2G=%s 5G=%s  LNA 2G=%s 5G=%s  rfe_type=%d\n",
+           ext_pa_2g?"extern":"intern", ext_pa_5g?"extern":"intern",
+           ext_lna_2g?"extern":"intern", ext_lna_5g?"extern":"intern", g_rfe_type);
+    (void)verbose;
+}
 
 /* 1:1 port of check_positive() from halhwimg8812a_rf.c */
 static int check_positive(u32 condition1, u32 condition2, u32 condition3, u32 condition4)
@@ -1237,6 +1300,12 @@ int rtl_rf_init(libusb_device_handle *h, int verbose)
 	u32 lena = (u32)(sizeof(array_mp_8812a_radioa) / sizeof(u32));
 	u32 lenb = (u32)(sizeof(array_mp_8812a_radiob) / sizeof(u32));
 
+	/* Read the real PA/LNA/RFE frontend config from efuse before applying
+	 * the RF tables, so the PA/LNA-conditional rows already present in
+	 * array_mp_8812a_radioa/b (ported byte-for-byte, condition markers
+	 * included) actually get selected for this unit's real hardware. */
+	detect_frontend(h, verbose);
+
 	if (verbose)
 		printf("[rtl_rf] RF-Init: radioA (%u u32) auf Pfad A, radioB (%u u32) auf Pfad B\n",
 		       lena, lenb);
@@ -1261,19 +1330,84 @@ int rtl_rf_init(libusb_device_handle *h, int verbose)
  *  8812AU path, rfe_type 0)
  * ===================================================================== */
 
-/* phy_SetRFEReg8812 for rfe_type 0 (AWUS036ACH default). */
+/* phy_SetRFEReg8812, full port -- which pinmux/inv (and for rfe_type 3, the
+ * antenna-switch) values apply depends on g_rfe_type, detected from efuse by
+ * detect_frontend(). This unit reads rfe_type=3 (confirmed via efuseinfo),
+ * NOT the previously-hardcoded 0 -- case 0/2 route the RF path around the
+ * external PA (fine for a reference board with none), case 3 is the one
+ * that actually switches the signal through this adapter's real external
+ * PA/antenna-switch hardware. BT-coexist variants (case 1) are omitted:
+ * this adapter has no BT combo radio to coexist with. */
 static void set_rfe_reg_8812(libusb_device_handle *h, int band)
 {
 	if (band == BAND_ON_2_4G) {
-		bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x77777777);
-		bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x77777777);
-		bb_write(h, rA_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x000);
-		bb_write(h, rB_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x000);
+		switch (g_rfe_type) {
+		case 0: case 2:
+			bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x77777777);
+			bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x77777777);
+			bb_write(h, rA_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x000);
+			bb_write(h, rB_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x000);
+			break;
+		case 3:
+			bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x54337770);
+			bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x54337770);
+			bb_write(h, rA_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
+			bb_write(h, rB_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
+			bb_write(h, r_ANTSEL_SW_Jaguar, 0x00000303, 0x1);
+			break;
+		case 4:
+			bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x77777777);
+			bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x77777777);
+			bb_write(h, rA_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x001);
+			bb_write(h, rB_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x001);
+			break;
+		case 6:
+			bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x07772770);
+			bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x07772770);
+			bb_write(h, rA_RFE_Inv_Jaguar, bMaskDWord, 0x00000077);
+			bb_write(h, rB_RFE_Inv_Jaguar, bMaskDWord, 0x00000077);
+			break;
+		default:
+			bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x77777777);
+			bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x77777777);
+			bb_write(h, rA_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x000);
+			bb_write(h, rB_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x000);
+			break;
+		}
 	} else {
-		bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x77337717);
-		bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x77337717);
-		bb_write(h, rA_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
-		bb_write(h, rB_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
+		switch (g_rfe_type) {
+		case 0:
+			bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x77337717);
+			bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x77337717);
+			bb_write(h, rA_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
+			bb_write(h, rB_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
+			break;
+		case 2: case 4:
+			bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x77337777);
+			bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x77337777);
+			bb_write(h, rA_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
+			bb_write(h, rB_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
+			break;
+		case 3:
+			bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x54337717);
+			bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x54337717);
+			bb_write(h, rA_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
+			bb_write(h, rB_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
+			bb_write(h, r_ANTSEL_SW_Jaguar, 0x00000303, 0x1);
+			break;
+		case 6:
+			bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x07737717);
+			bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x07737717);
+			bb_write(h, rA_RFE_Inv_Jaguar, bMaskDWord, 0x00000077);
+			bb_write(h, rB_RFE_Inv_Jaguar, bMaskDWord, 0x00000077);
+			break;
+		default:
+			bb_write(h, rA_RFE_Pinmux_Jaguar, bMaskDWord, 0x77337717);
+			bb_write(h, rB_RFE_Pinmux_Jaguar, bMaskDWord, 0x77337717);
+			bb_write(h, rA_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
+			bb_write(h, rB_RFE_Inv_Jaguar, bMask_RFEInv_Jaguar, 0x010);
+			break;
+		}
 	}
 }
 

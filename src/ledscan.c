@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include "rtl_usb.h"
 #include "rtl_hal.h"
+#include "rtl_rx.h"
 
 #define BITn(n) (1u << (n))
 #define LEDCFG0 0x004C
@@ -36,6 +37,8 @@ int main(void) {
     int rc = rtl_open_first(ctx, &h, &pid, &claimed);
     if (rc || !h) { printf("Kein Geraet.\n"); libusb_exit(ctx); return 2; }
 
+    rtl_rx_bind(ctx, rtl_chip_probe(pid));   /* asynchronen RX-Pfad aktivieren */
+
     if (rtl_hal_full_init(h, 6, 0, 0) != 0) { printf("Init fehlgeschlagen.\n"); goto done; }
     printf("Init OK. Achte jetzt auf die LED.\n\n");
 
@@ -47,6 +50,7 @@ int main(void) {
     printf("\nFertig. In welcher Phase hat die LED geblinkt (A, B, beide, keine)?\n");
 
 done:
+    rtl_rx_unbind();
     if (claimed) libusb_release_interface(h, 0);
     libusb_close(h); libusb_exit(ctx);
     return 0;

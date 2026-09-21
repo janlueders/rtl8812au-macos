@@ -55,6 +55,9 @@ int main(int argc, char **argv) {
     libusb_device_handle *h = NULL; uint16_t pid = 0; int claimed = 0;
     int rc = rtl_open_first(ctx, &h, &pid, &claimed);
     if (rc || !h) { printf("Kein Geraet.\n"); libusb_exit(ctx); return 2; }
+
+    rtl_rx_bind(ctx, rtl_chip_probe(pid));   /* asynchronen RX-Pfad aktivieren */
+
     if (rtl_hal_full_init(h, channel, 0, 0) != 0) { printf("Init fehlgeschlagen.\n"); goto done; }
 
     /* Our own MAC into the MACID register -> hardware auto-ACK for responses to us. */
@@ -107,6 +110,7 @@ int main(int argc, char **argv) {
         printf("\n==> IE2 OK: mit dem AP assoziiert. Naechster Schritt: WPA2-Handshake (IE3).\n");
 
 done:
+    rtl_rx_unbind();
     if (claimed) libusb_release_interface(h, 0);
     libusb_close(h); libusb_exit(ctx);
     return 0;

@@ -60,18 +60,22 @@ static int do_capture(const char *fifo, int channel) {
     int rc = rtl_open_first(ctx, &h, &pid, &claimed);
     if (rc || !h) { fprintf(stderr, "alfa-extcap: kein RTL8812AU gefunden\n"); libusb_exit(ctx); return 2; }
 
+    rtl_rx_bind(ctx, rtl_chip_probe(pid));   /* asynchronen RX-Pfad aktivieren */
+
     if (rtl_hal_full_init(h, channel, 0, 0) != 0) {
         fprintf(stderr, "alfa-extcap: Init fehlgeschlagen\n");
+        rtl_rx_unbind();
         if (claimed) libusb_release_interface(h, 0);
         libusb_close(h); libusb_exit(ctx); return 3;
     }
 
     FILE *f = fopen(fifo, "wb");
-    if (!f) { perror("alfa-extcap: fifo"); if (claimed) libusb_release_interface(h,0); libusb_close(h); libusb_exit(ctx); return 4; }
+    if (!f) { perror("alfa-extcap: fifo"); rtl_rx_unbind(); if (claimed) libusb_release_interface(h,0); libusb_close(h); libusb_exit(ctx); return 4; }
     rtl_rx_write_pcap_header(f);
     rtl_rx_stream(h, f);        /* laeuft bis Wireshark den FIFO schliesst */
     fclose(f);
 
+    rtl_rx_unbind();
     if (claimed) libusb_release_interface(h, 0);
     libusb_close(h); libusb_exit(ctx);
     return 0;

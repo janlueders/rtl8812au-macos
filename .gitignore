@@ -28,3 +28,7 @@ ccmptest
 *.md
 !README.md
 alfa-netd
+deauth
+
+# IDE-Konfiguration, lokal
+.idea/

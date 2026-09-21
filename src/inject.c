@@ -45,6 +45,8 @@ int main(int argc, char **argv) {
     if (rc != 0 || !h) { fprintf(stderr, "Oeffnen: %s\n", libusb_error_name(rc)); libusb_exit(ctx); return 1; }
     printf("Geraet 0bda:%04x, Claim: %s\n\n", pid, claimed ? "OK" : "NEIN");
 
+    rtl_rx_bind(ctx, rtl_chip_probe(pid));   /* asynchronen RX-Pfad aktivieren */
+
     rc = rtl_hal_full_init(h, channel, with_cal, 1);
     if (rc != 0) { printf("Init fehlgeschlagen (rc=%d).\n", rc); goto done; }
 
@@ -68,6 +70,7 @@ int main(int argc, char **argv) {
     printf("                     oder: tcpdump -r %s 2>/dev/null | grep -i 'Probe Response' | wc -l\n", out);
 
 done:
+    rtl_rx_unbind();
     if (claimed) libusb_release_interface(h, 0);
     libusb_close(h);
     libusb_exit(ctx);

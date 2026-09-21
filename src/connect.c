@@ -216,6 +216,9 @@ int main(int argc, char **argv) {
     if (libusb_init(&ctx) != 0) return 1;
     libusb_device_handle *h = NULL; uint16_t pid=0; int claimed=0;
     if (rtl_open_first(ctx,&h,&pid,&claimed) || !h) { printf("Kein Geraet.\n"); libusb_exit(ctx); return 2; }
+
+    rtl_rx_bind(ctx, rtl_chip_probe(pid));   /* asynchronen RX-Pfad aktivieren */
+
     if (rtl_hal_full_init(h, channel, 0, 0) != 0) { printf("Init fehlgeschlagen.\n"); goto done; }
     rtl_reg_write(h, REG_MACID, g_sa, 6);
 
@@ -303,6 +306,7 @@ int main(int argc, char **argv) {
     printf("\nNaechster Schritt IE5: utun-Bridge + DHCP (Daemon, braucht sudo).\n");
 
 done:
+    rtl_rx_unbind();
     if (claimed) libusb_release_interface(h, 0);
     libusb_close(h); libusb_exit(ctx);
     return 0;

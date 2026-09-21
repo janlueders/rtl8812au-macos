@@ -41,6 +41,7 @@ the device is free for userspace to claim.
   │  rtl_bb    baseband/PHY init                 │
   │  rtl_rf    RF init + channel (2.4/5 GHz)     │
   │  rtl_cal   IQK/LCK calibration               │
+  │  rtl_txpwr efuse-calibrated TX power         │
   │  rtl_rx    bulk-IN → 802.11 + radiotap        │
   │  rtl_tx    802.11 + TX descriptor → bulk-OUT  │
   │  rtl_ccmp  AES-CCM (WPA2 data crypto)         │
@@ -48,10 +49,10 @@ the device is free for userspace to claim.
   └────────────────────────────────────────────┘
         │
         ▼
-  Wireshark / Kismet / aircrack (pcap)   |   utun (internet client, WIP)
+  Wireshark / Kismet / aircrack (pcap)   |   utun (internet client)
 ```
 
-## What works (verified on hardware: M2 Pro, macOS 26.6.2)
+## What works (verified on hardware: Alfa AWUS036ACH, M2 Pro, macOS 26.6.2)
 
 - **Device bring-up:** claim device (no kext/SIP), register R/W, power-on,
   efuse read (real ALFA MAC), firmware download (checksum OK, firmware running).
@@ -60,37 +61,72 @@ the device is free for userspace to claim.
 - **Monitor mode:** captures real 802.11 traffic to pcap+radiotap. Verified on
   channel 6 and channel 100 (beacons, data, ACK/Block-ACK), decoded by tcpdump.
 - **Packet injection:** verified via probe-request → probe-response to our MAC
-  from the AP. Deauth and other management frames use the same path. Moderate TX
-  power (index 0x12), no PA stress.
-- **Wireshark integration** via extcap (`alfa-extcap`), and a **Homebrew** formula.
+  from the AP.
+- **TX power:** read from the adapter's own efuse calibration and applied at
+  init (the AWUS036ACH's external PA/LNA front-end on both bands is detected
+  from efuse and correctly engaged — this, not just the digital gain index,
+  is what actually gets the adapter to its rated output power).
+- **Wireshark integration** via extcap (`alfa-extcap`).
 - **Status LED** (register `LEDCFG0`): on after init, blinks on traffic.
 
-### Internet client (work in progress)
+### Internet client — working
 
-A userspace daemon (`alfa-netd`) that connects as a WPA2 station and bridges IP
-through a `utun` interface. Verified so far: WPA2-PSK 4-way handshake (validated
-against the IEEE 802.11i test vector and live), CCMP decrypt of real traffic,
-association, and DHCP. Data-path bring-up (routing/ping) is under active
-debugging. Note: because it uses `utun`, it appears as a tunnel, not as an
-Ethernet adapter in Network settings (that would require the entitlement-gated
-DriverKit path).
+`alfa-netd` connects as a real WPA2 station and bridges IP through a `utun`
+interface, so the Mac gets full internet access through the Alfa adapter.
+Verified end-to-end on real hardware: WPA2-PSK 4-way handshake, CCMP
+encrypt/decrypt of live traffic, DHCP, routing, and sustained 0% packet loss
+pinging the public internet. You only need the network's SSID — `alfa-netd`
+scans 2.4GHz for it and finds the channel/BSSID itself. Note: because it uses
+`utun`, it appears as a tunnel, not as an Ethernet adapter in Network settings
+(that would require the entitlement-gated DriverKit path). 5GHz networks and
+WPA3/SAE are not supported yet.
 
 ## Tools
 
 | Tool | Purpose |
 |------|---------|
-| `usbprobe`  | find/claim the device, dump endpoints |
-| `chipinfo`  | read/decode chip version |
-| `efuseinfo` | read efuse → real MAC |
-| `fwload`    | download firmware |
+| `alfa-netd` | **internet-client daemon** — connect to WPA2 Wi-Fi and get real internet access (needs sudo) |
+| `scan`      | scan 2.4/5 GHz for nearby networks |
 | `monitor`   | monitor-mode capture to pcap |
 | `inject`    | packet injection (probe-request test) |
-| `scan`      | scan 2.4/5 GHz for networks |
 | `alfa-extcap` | Wireshark extcap capture source |
-| `connect`   | WPA2-PSK connect + handshake test |
-| `alfa-netd` | internet-client daemon (WIP, needs sudo) |
+| `connect`   | WPA2-PSK connect + handshake test (no internet bridging) |
+| `deauth`    | send 802.11 deauthentication frames (same technique as `aireplay-ng --deauth`) — **only against networks you're authorized to test** |
+| `efuseinfo` | read efuse → real MAC, TX power calibration, PA/LNA/frontend info |
+| `usbprobe`  | find/claim the device, dump endpoints |
+| `chipinfo`  | read/decode chip version |
+| `fwload`    | download firmware |
 
-## Build & use
+## Quick start (just want internet through the Alfa adapter?)
+
+1. **Install prerequisites** (once):
+   ```bash
+   xcode-select --install        # Xcode Command Line Tools (provides cc, make)
+   brew install libusb           # if you don't have Homebrew: https://brew.sh
+   ```
+2. **Get the code and build it:**
+   ```bash
+   git clone https://github.com/janlueders/rtl8812au-macos.git
+   cd rtl8812au-macos
+   make
+   ```
+3. **Plug in the Alfa AWUS036ACH**, then connect to your Wi-Fi by name:
+   ```bash
+   sudo ./alfa-netd "MyNetworkName" --default
+   ```
+   You'll be asked for your Wi-Fi password. `alfa-netd` finds the channel and
+   BSSID itself, connects, and bridges internet through the adapter.
+   `--default` makes it your Mac's default route (and briefly turns off
+   Apple's own Wi-Fi so the two radios don't interfere on the same channel —
+   it's restored automatically when you stop the daemon).
+4. **Stop it any time with Ctrl-C** — it always restores your normal
+   networking (routes, Apple Wi-Fi) on exit, even if the connection failed.
+
+If you just want monitor mode / packet capture instead of internet access, see
+the `monitor`/`inject`/`alfa-extcap`/`scan` tools above — no `sudo`-daemon or
+`--default` needed for those.
+
+## Build & use (other tools)
 
 ```bash
 make                       # builds all tools (arm64, against libusb)
@@ -99,19 +135,11 @@ make                       # builds all tools (arm64, against libusb)
 ./scan                     # list nearby networks
 ```
 
-## Install via Homebrew
-
-```bash
-brew install --HEAD ./Formula/rtl8812au-macos.rb
-# or from a tap:  brew install --HEAD janlueders/tap/rtl8812au-macos
-```
-
-This installs `alfa-monitor`, `alfa-inject`, `alfa-usbprobe`, `alfa-chipinfo`,
-and `alfa-extcap`. For Wireshark, link the extcap helper (see the `brew` caveats):
+For Wireshark, link the extcap helper:
 
 ```bash
 mkdir -p ~/.config/wireshark/extcap
-ln -sf "$(brew --prefix)/bin/alfa-extcap" ~/.config/wireshark/extcap/alfa-extcap
+ln -sf "$(pwd)/alfa-extcap" ~/.config/wireshark/extcap/alfa-extcap
 ```
 
 ## License & origin

@@ -144,3 +144,50 @@ int rtl_fw_download(libusb_device_handle *h, int verbose) {
     if (verbose) printf("  FW ready (WINTINI_RDY gesetzt)\n");
     return 0;
 }
+
+/* ---------------------------------------------------------------------
+ * H2C_SET_PWR_MODE (hal/rtl8812a/rtl8812a_cmd.c rtl8812_set_FwPwrMode_cmd,
+ * hal_com_h2c.h H2C_PWRMODE_LEN=7) -- tell the embedded firmware to stay in
+ * PS_MODE_ACTIVE (no power save) and never sent anywhere in this codebase
+ * until now. The firmware runs autonomously on the chip's own MCU; without
+ * this explicit command it can default to its own idle-triggered power-save
+ * behavior (setting the 802.11 PM bit in its own auto-generated frames),
+ * independent of anything the host writes to registers. Symptom this
+ * explained: beacons kept arriving (RX hardware fine) but unicast delivery
+ * died for good the first time outbound traffic paused -- once the AP
+ * believes we're in power-save, it buffers unicast for us and waits for a
+ * PS-Poll/null-data wake we never send, exactly matching "pause once, dead
+ * forever, even after resuming traffic."
+ *
+ * Mailbox protocol (fill_h2c_cmd_8812): REG_HMETFR (0x1CC) bit<n> = box n
+ * still unread by firmware; write the first 3 payload bytes + command id
+ * into REG_HMEBOX_0 (0x1D0, 4 bytes LE), the remaining 4 into
+ * REG_HMEBOX_EXT0 (0x1F0, 4 bytes LE). We only ever send this one command,
+ * once, so box 0 unconditionally is fine -- no round-robin bookkeeping
+ * needed. */
+#define REG_HMETFR       0x01CC
+#define REG_HMEBOX_0     0x01D0
+#define REG_HMEBOX_EXT0  0x01F0
+#define H2C_SET_PWR_MODE 0x20
+
+int rtl_fw_set_active_mode(libusb_device_handle *h, int verbose) {
+    for (int i = 0; i < 100; i++) {
+        if (!(rtl_read8(h, REG_HMETFR, NULL) & BIT(0))) break;
+        usleep(1000);
+    }
+    uint8_t p[7] = {0};
+    p[0] = 0x00;  /* Mode = PS_MODE_ACTIVE (0) */
+    p[1] = 0x00;  /* RLBM=0, Smart_PS=0 -- irrelevant in Active mode */
+    p[2] = 0x00;  /* BCN_PASS_TIME -- irrelevant in Active mode */
+    p[3] = 0x00;  /* AllQueueUAPSD = 0 */
+    p[4] = 0x0C;  /* PWR_STATE = AllON */
+    p[5] = 0x00; p[6] = 0x00;
+
+    uint32_t h2c_cmd = (uint32_t)H2C_SET_PWR_MODE | ((uint32_t)p[0]<<8) | ((uint32_t)p[1]<<16) | ((uint32_t)p[2]<<24);
+    uint32_t h2c_cmd_ex = (uint32_t)p[3] | ((uint32_t)p[4]<<8) | ((uint32_t)p[5]<<16) | ((uint32_t)p[6]<<24);
+
+    rtl_write32(h, REG_HMEBOX_EXT0, h2c_cmd_ex);
+    int rc = rtl_write32(h, REG_HMEBOX_0, h2c_cmd);
+    if (verbose) printf("[fw] H2C_SET_PWR_MODE (Active, kein Power-Save) gesendet (rc=%d)\n", rc);
+    return rc;
+}

@@ -88,6 +88,12 @@ int rtl_power_on(libusb_device_handle *h, int verbose);
  * Requires a successful power-on sequence. */
 int rtl_fw_download(libusb_device_handle *h, int verbose);
 
+/* Tell the embedded firmware to stay in PS_MODE_ACTIVE (no autonomous
+ * power-save) -- H2C_SET_PWR_MODE, never sent anywhere until now. See
+ * rtl_fw.c for why this matters. Requires firmware already downloaded
+ * (WINTINI_RDY). Returns 0 ok, otherwise a libusb error. */
+int rtl_fw_set_active_mode(libusb_device_handle *h, int verbose);
+
 /* Status LED0 (SW control) on/off. */
 void rtl_led_on(libusb_device_handle *h);
 void rtl_led_off(libusb_device_handle *h);
